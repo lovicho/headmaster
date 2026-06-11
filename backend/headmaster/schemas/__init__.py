@@ -1,6 +1,7 @@
 """Canonical Headmaster schemas (Pydantic v2) — the source of truth for all contracts."""
 
 from headmaster.schemas.agent_manifest import AgentManifest
+from headmaster.schemas.artifact import Artifact, content_sha256
 from headmaster.schemas.common import (
     CostTier,
     DataSensitivity,
@@ -52,6 +53,7 @@ __all__ = [
     "TERMINAL_STATES",
     "AgentHarness",
     "AgentManifest",
+    "Artifact",
     "Budget",
     "Claim",
     "Constraints",
@@ -87,6 +89,7 @@ __all__ = [
     "ToolPolicy",
     "VerificationDetails",
     "VerifierStatus",
+    "content_sha256",
     "harness_adapter",
     "new_id",
     "validate_transition",

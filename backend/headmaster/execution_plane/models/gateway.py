@@ -1,0 +1,99 @@
+"""ModelGateway — the single LLM-agnostic interface.
+
+Harnesses declare a cost tier only; this gateway resolves tier -> provider/model
+from config/models.yaml and delegates to the provider adapter. Provider-specific
+request/response shapes never leak past the adapters.
+"""
+
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import ClassVar, Literal
+
+import yaml
+from pydantic import BaseModel, Field
+
+from headmaster.schemas.common import CostTier
+
+CONFIG_DIR = Path(__file__).resolve().parent.parent.parent / "config"
+
+
+class ModelMessage(BaseModel):
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+
+class ModelRequest(BaseModel):
+    messages: list[ModelMessage]
+    cost_tier: CostTier = CostTier.MINI
+    max_tokens: int = 4096
+    temperature: float = 0.2
+
+
+class ModelUsage(BaseModel):
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+class ModelResponse(BaseModel):
+    text: str
+    provider: str
+    model: str
+    usage: ModelUsage = Field(default_factory=ModelUsage)
+    stop_reason: str | None = None
+
+
+class ModelAdapter(ABC):
+    """Contract every provider adapter must satisfy (verified by a shared test suite)."""
+
+    provider: ClassVar[str]
+
+    @abstractmethod
+    async def complete(self, request: ModelRequest, model: str) -> ModelResponse: ...
+
+
+class TierRoute(BaseModel):
+    provider: str
+    model: str
+
+
+class ModelRoutingConfig(BaseModel):
+    default_provider: str
+    tiers: dict[CostTier, TierRoute]
+    alternates: dict[str, dict[CostTier, str]] = Field(default_factory=dict)
+
+
+def load_routing(path: Path | None = None) -> ModelRoutingConfig:
+    config_path = path or (CONFIG_DIR / "models.yaml")
+    with config_path.open(encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+    return ModelRoutingConfig.model_validate(raw)
+
+
+class ModelGateway:
+    def __init__(
+        self,
+        routing: ModelRoutingConfig,
+        adapters: dict[str, ModelAdapter],
+        provider_override: str | None = None,
+    ) -> None:
+        self._routing = routing
+        self._adapters = adapters
+        self._provider_override = provider_override
+
+    def resolve(self, tier: CostTier) -> tuple[str, str]:
+        """Resolve a cost tier to (provider, model) honoring any provider override."""
+        route = self._routing.tiers[tier]
+        provider = self._provider_override or route.provider
+        if provider == route.provider:
+            return provider, route.model
+        alternate = self._routing.alternates.get(provider)
+        if alternate and tier in alternate:
+            return provider, alternate[tier]
+        return provider, "default"
+
+    async def complete(self, request: ModelRequest) -> ModelResponse:
+        provider, model = self.resolve(request.cost_tier)
+        adapter = self._adapters.get(provider)
+        if adapter is None:
+            raise KeyError(f"no adapter registered for provider: {provider}")
+        return await adapter.complete(request, model)
