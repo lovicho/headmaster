@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from headmaster.api.task_manager import TaskManager
@@ -97,6 +99,7 @@ def create_app(
     fabric: MemoryFabric,
     provider: str | None = None,
     artifact_dir: Path | None = None,
+    static_dir: Path | None = None,
     max_revisions: int = 2,
 ) -> FastAPI:
     all_harnesses = load_all()
@@ -134,6 +137,12 @@ def create_app(
     manager = TaskManager(orchestrator, store)
 
     app = FastAPI(title="Headmaster Control API", version="0.1.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.post("/v1/tasks", response_model=CreateTaskResponse)
     async def create_task(request: CreateTaskRequest) -> CreateTaskResponse:
@@ -232,5 +241,8 @@ def create_app(
     @app.post("/v1/evals/run", response_model=EvalReport)
     async def run_evals() -> EvalReport:
         return run_golden_suite(_DEFAULT_GOLDEN, registry)
+
+    if static_dir is not None and static_dir.is_dir():
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="dashboard")
 
     return app

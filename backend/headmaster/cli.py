@@ -95,6 +95,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--memory-store", default="./data/memory.sqlite3", help="memory fabric path"
     )
     serve.add_argument("--artifact-dir", default="./data/artifacts", help="artifact output dir")
+    serve.add_argument(
+        "--static-dir",
+        default="../frontend/dist",
+        help="dashboard static files dir (ignored when missing)",
+    )
     return parser
 
 
@@ -237,11 +242,13 @@ def _serve(args: argparse.Namespace) -> int:
 
     from headmaster.api.main import create_app
 
+    static_dir = Path(args.static_dir)
     app = create_app(
         store=EventStore(args.store),
         fabric=MemoryFabric(args.memory_store),
         provider=args.provider,
         artifact_dir=Path(args.artifact_dir),
+        static_dir=static_dir if static_dir.is_dir() else None,
     )
     uvicorn.run(app, host=args.host, port=args.port)
     return 0

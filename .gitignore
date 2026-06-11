@@ -16,6 +16,10 @@ venv/
 node_modules/
 dist/
 
+# Test tooling
+.playwright-mcp/
+backend/dashboard-e2e-*.png
+
 # Env / secrets
 .env
 .env.*
