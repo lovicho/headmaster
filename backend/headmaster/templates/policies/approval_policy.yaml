@@ -1,0 +1,12 @@
+policy_id: approval_policy
+version: 1.0.0
+description: Human-in-the-loop gate conditions (enforced by approval_gateway from Phase 3).
+require_human_approval_when:
+  - action_risk: high
+  - data_sensitivity: confidential
+  - external_write: true
+  - budget_hard_limit_exceeded: true
+auto_approve_when:
+  - action_risk: low
+    data_sensitivity: public
+    external_write: false

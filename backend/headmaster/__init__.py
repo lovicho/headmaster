@@ -1,0 +1,3 @@
+"""Headmaster — LLM-agnostic agentic orchestration control plane."""
+
+__version__ = "0.1.0"

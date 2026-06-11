@@ -1,0 +1,105 @@
+kind: orchestra
+harness_id: b2b_website_v8
+version: 8.0.0
+task_class: enterprise_web_build
+risk_tier: medium
+core_directives:
+  - "No Zero-Shot Invention: creating from a blank canvas is strictly prohibited across planning, design, coding and copywriting; every deliverable must prove what was imitated and what was benchmarked."
+  - "I-B-F Protocol: imitate internal success assets, benchmark the best external cases, and fuse them with the client's unique data."
+  - "Active Knowledge RAG & Maintenance: all outputs, experiences, knowledge and data are permanently stored and reused as the baseline for the next project."
+  - "English-Core / Korean-Edge: all internal processing, benchmark structuring, code fusion and agent debates in ENGLISH; only client-facing deliverables in KOREAN."
+  - "Evidence-Based Arbitration: agent conflicts are resolved with benchmark data and past success metrics."
+required_roles:
+  - knowledge_manager
+  - researcher
+  - consultant
+  - critic
+  - planner
+  - content
+  - design
+  - dev_fe_be
+  - secops_qa
+phases:
+  - phase_id: phase_0
+    title: Retrieve Knowledge & Hyper-Gap Benchmark
+    agents: [knowledge_manager, researcher, consultant]
+    description: >-
+      Load past system knowledge (RAG) as the skeleton, extract competitor
+      benchmark data, and fuse them to author the strategic reverse proposal
+      (KO) that overcomes the client's RFP limitations.
+    gate:
+      gate_id: gate_0
+      description: >-
+        CRITICAL — has the client officially signed off on the reverse
+        proposal, which includes clear benchmark targets and empirical data?
+      approver: human
+  - phase_id: phase_1
+    title: I-B-F Fusion Execution — Planning
+    agents: [planner]
+    description: Fuse proven internal IA skeletons with competitor IA patterns onto reverse-proposal facts.
+    gate:
+      gate_id: gate_1
+      description: Deliverable declares and proves imitation target, benchmark target and fusion methodology; client data fused without disjointedness.
+      approver: critic
+  - phase_id: phase_2
+    title: I-B-F Fusion Execution — Content
+    agents: [content]
+    description: Fuse proven copy templates with omni-search trends and the client's factual data.
+    gate:
+      gate_id: gate_2
+      description: Same I-B-F approval criteria as gate_1.
+      approver: critic
+  - phase_id: phase_3
+    title: I-B-F Fusion Execution — Design
+    agents: [design]
+    description: Fuse verified internal UI components with current trends into standardized design tokens.
+    gate:
+      gate_id: gate_3
+      description: Same I-B-F approval criteria as gate_1.
+      approver: critic
+  - phase_id: phase_4
+    title: I-B-F Fusion Execution — Development
+    agents: [dev_fe_be]
+    description: Assemble safety-verified boilerplate and expand to project specifications; blank-slate coding disabled.
+    gate:
+      gate_id: gate_4
+      description: Same I-B-F approval criteria as gate_1.
+      approver: critic
+  - phase_id: phase_5
+    title: Compliance & Final Deployment
+    agents: [secops_qa]
+    description: Defend against all error patterns from previous projects; OWASP and Core Web Vitals checks.
+    gate:
+      gate_id: gate_5
+      description: Have past error patterns been perfectly defended? Have all assets been transferred to the client?
+      approver: secops_qa
+  - phase_id: phase_7
+    title: Permanent Capitalization of Outputs & Experiences
+    agents: [knowledge_manager]
+    description: >-
+      Deconstruct and extract new UI patterns, flawless code snippets,
+      successful persuasion logic and conflict-resolution processes;
+      categorize, tag and permanently store them into the knowledge base as
+      the imitation source for the next project.
+ibf_requirements:
+  must_reference_internal_assets: true
+  must_reference_external_benchmarks: true
+  proof_format: [asset_ids, benchmark_uris, trace_ids, artifact_hashes]
+approval_gates:
+  - reverse_proposal_signoff
+  - critic_gate
+  - security_gate
+  - qa_gate
+language_policy:
+  internal: en
+  external: ko
+tool_policy:
+  mcp_allowed: [rag_search, rag_write, web_search, web_fetch, file_read, file_write, shell]
+  sandbox_required: true
+  external_write_requires_human_approval: true
+eval_suite:
+  - regression_golden_set
+  - style_guard
+  - security_checks
+  - localization_checks
+rollback_policy: version_pin_and_redeploy

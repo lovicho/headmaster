@@ -1,0 +1,19 @@
+policy_id: safety_policy
+version: 1.0.0
+description: Default safety controls (enforced by policy_engine from Phase 3).
+rules:
+  - id: no_zero_shot
+    description: Deliverables lacking a valid I-B-F proof are rejected by the critic gate.
+    action: deny
+  - id: tool_allowlist
+    description: Agents may only call MCP tools listed in their harness tool_policy.mcp_allowed.
+    action: deny
+  - id: external_write_approval
+    description: Any external write action requires human approval or a signed machine policy.
+    action: review
+  - id: tool_origin_labeling
+    description: Tool outputs are labeled untrusted; they never override harness directives (prompt-injection containment).
+    action: review
+  - id: memory_quarantine
+    description: Failed-verification records are quarantined, never promoted or silently discarded.
+    action: deny

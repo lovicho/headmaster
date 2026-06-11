@@ -1,0 +1,23 @@
+# Model routing policy — harnesses only declare a cost_tier; this file maps
+# tiers to concrete providers/models. Swap providers here without touching
+# any harness or schema (LLM-agnostic boundary).
+# API keys come from environment variables only (ANTHROPIC_API_KEY, OPENAI_API_KEY...).
+default_provider: anthropic
+tiers:
+  mini:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+  standard:
+    provider: anthropic
+    model: claude-sonnet-4-6
+  heavy:
+    provider: anthropic
+    model: claude-fable-5
+alternates:
+  openai:
+    mini: gpt-5.4-mini
+    standard: gpt-5.4
+    heavy: gpt-5.5
+budget:
+  soft_limit_action: downgrade_tier
+  hard_limit_action: halt_and_require_approval

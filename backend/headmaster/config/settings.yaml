@@ -1,0 +1,12 @@
+storage:
+  event_store: ./data/events.sqlite3
+  artifact_dir: ./data/artifacts
+language_policy:
+  internal: en
+  external: ko
+defaults:
+  risk_tier: medium
+  max_tool_calls: 100
+  max_model_cost_usd: 5.0
+observability:
+  trace_export: console
