@@ -4,6 +4,7 @@ Safe-by-default: when no gateway is configured, high-risk actions are
 denied, never silently approved.
 """
 
+import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 
@@ -36,6 +37,36 @@ class CallbackApprovalGateway(ApprovalGateway):
     async def request(self, ticket: ApprovalTicket) -> ApprovalDecision:
         self.tickets.append(ticket)
         return self._callback(ticket)
+
+
+class QueueApprovalGateway(ApprovalGateway):
+    """Parks tickets in a pending queue until resolved out-of-band (HTTP API).
+
+    request() suspends the orchestrator until resolve() supplies a decision.
+    """
+
+    def __init__(self) -> None:
+        self._pending: dict[str, tuple[ApprovalTicket, asyncio.Future[ApprovalDecision]]] = {}
+
+    def pending(self) -> list[ApprovalTicket]:
+        return [ticket for ticket, _ in self._pending.values()]
+
+    def resolve(self, ticket_id: str, decision: ApprovalDecision) -> bool:
+        entry = self._pending.get(ticket_id)
+        if entry is None:
+            return False
+        _, future = entry
+        if not future.done():
+            future.set_result(decision)
+        return True
+
+    async def request(self, ticket: ApprovalTicket) -> ApprovalDecision:
+        future: asyncio.Future[ApprovalDecision] = asyncio.get_running_loop().create_future()
+        self._pending[ticket.ticket_id] = (ticket, future)
+        try:
+            return await future
+        finally:
+            self._pending.pop(ticket.ticket_id, None)
 
 
 class ConsoleApprovalGateway(ApprovalGateway):

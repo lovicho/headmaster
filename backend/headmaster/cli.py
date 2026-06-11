@@ -80,6 +80,21 @@ def _build_parser() -> argparse.ArgumentParser:
 
     eval_cmd = sub.add_parser("eval", help="run the golden-set regression suite")
     eval_cmd.add_argument("--golden", default=str(_DEFAULT_GOLDEN), help="golden set path")
+
+    serve = sub.add_parser("serve", help="start the control API (FastAPI/uvicorn)")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8400)
+    serve.add_argument(
+        "--provider",
+        default=None,
+        choices=["anthropic", "openai", "fake"],
+        help="override the model provider (fake = offline demo)",
+    )
+    serve.add_argument("--store", default="./data/events.sqlite3", help="event store path")
+    serve.add_argument(
+        "--memory-store", default="./data/memory.sqlite3", help="memory fabric path"
+    )
+    serve.add_argument("--artifact-dir", default="./data/artifacts", help="artifact output dir")
     return parser
 
 
@@ -217,6 +232,21 @@ def _eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _serve(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    from headmaster.api.main import create_app
+
+    app = create_app(
+        store=EventStore(args.store),
+        fabric=MemoryFabric(args.memory_store),
+        provider=args.provider,
+        artifact_dir=Path(args.artifact_dir),
+    )
+    uvicorn.run(app, host=args.host, port=args.port)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "run":
@@ -225,6 +255,8 @@ def main(argv: list[str] | None = None) -> int:
         return _metrics(args)
     if args.command == "eval":
         return _eval(args)
+    if args.command == "serve":
+        return _serve(args)
     return _replay(args)
 
 
