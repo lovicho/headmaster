@@ -18,6 +18,14 @@ alternates:
     mini: gpt-5.4-mini
     standard: gpt-5.4
     heavy: gpt-5.5
+pricing:
+  anthropic:
+    claude-haiku-4-5-20251001: {input_per_mtok: 1.0, output_per_mtok: 5.0}
+    claude-sonnet-4-6: {input_per_mtok: 3.0, output_per_mtok: 15.0}
+    claude-fable-5: {input_per_mtok: 5.0, output_per_mtok: 25.0}
+  fake:
+    default: {input_per_mtok: 1.0, output_per_mtok: 1.0}
 budget:
+  soft_ratio: 0.8
   soft_limit_action: downgrade_tier
   hard_limit_action: halt_and_require_approval

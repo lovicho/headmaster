@@ -38,6 +38,14 @@ def test_recovery_loop_allowed() -> None:
     validate_transition(TaskState.RECOVERING, TaskState.EXECUTING)
 
 
+def test_phase_gate_transitions_allowed() -> None:
+    # orchestra: phase gate passed -> plan next phase
+    validate_transition(TaskState.CRITIQUING, TaskState.PLANNED)
+    # human gate: granted -> next phase or final validation
+    validate_transition(TaskState.AWAITING_HUMAN_APPROVAL, TaskState.PLANNED)
+    validate_transition(TaskState.AWAITING_HUMAN_APPROVAL, TaskState.VALIDATED)
+
+
 def test_invalid_transition_rejected() -> None:
     with pytest.raises(InvalidTransitionError):
         validate_transition(TaskState.REGISTERED, TaskState.PUBLISHING)

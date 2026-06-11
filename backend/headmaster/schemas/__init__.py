@@ -1,6 +1,7 @@
 """Canonical Headmaster schemas (Pydantic v2) — the source of truth for all contracts."""
 
 from headmaster.schemas.agent_manifest import AgentManifest
+from headmaster.schemas.approval import ApprovalDecision, ApprovalKind, ApprovalTicket
 from headmaster.schemas.artifact import Artifact, content_sha256
 from headmaster.schemas.common import (
     CostTier,
@@ -53,6 +54,9 @@ __all__ = [
     "TERMINAL_STATES",
     "AgentHarness",
     "AgentManifest",
+    "ApprovalDecision",
+    "ApprovalKind",
+    "ApprovalTicket",
     "Artifact",
     "Budget",
     "Claim",

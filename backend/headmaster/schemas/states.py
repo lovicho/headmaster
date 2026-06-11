@@ -40,13 +40,20 @@ ALLOWED_TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
         {TaskState.EXECUTING, TaskState.RECOVERING, TaskState.FAILED}
     ),
     TaskState.AWAITING_HUMAN_APPROVAL: frozenset(
-        {TaskState.EXECUTING, TaskState.REPLANNING, TaskState.FAILED}
+        {
+            TaskState.EXECUTING,
+            TaskState.REPLANNING,
+            TaskState.PLANNED,  # phase gate approved -> plan next phase
+            TaskState.VALIDATED,  # publish approval granted
+            TaskState.FAILED,
+        }
     ),
     TaskState.CRITIQUING: frozenset(
         {
             TaskState.VALIDATED,
             TaskState.REPLANNING,
             TaskState.AWAITING_HUMAN_APPROVAL,
+            TaskState.PLANNED,  # phase gate passed -> plan next phase (orchestra)
             TaskState.FAILED,
         }
     ),

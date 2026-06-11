@@ -16,7 +16,9 @@ from headmaster.execution_plane.models.gateway import (
     ModelGateway,
     ModelMessage,
     ModelRequest,
+    ModelUsage,
 )
+from headmaster.schemas.common import CostTier
 from headmaster.schemas.events import Event, EventType
 from headmaster.schemas.evidence_bundle import EvidenceBundle, IBFProof
 from headmaster.schemas.harness_manifest import AgentHarness, IBFRequirements
@@ -51,6 +53,9 @@ class AgentDraft(BaseModel):
     bundle: EvidenceBundle
     content: str
     raw_text: str
+    provider: str
+    model: str
+    usage: ModelUsage
 
 
 class AgentRuntime:
@@ -66,6 +71,7 @@ class AgentRuntime:
         revision_notes: list[str],
         emit: EmitFn,
         supplied_assets: list[MemoryRecord] | None = None,
+        cost_tier: CostTier | None = None,
     ) -> AgentDraft:
         system_prompt = compile_system_prompt(harness, requirements)
         user_sections = [f"# Task\n{task.intent}"]
@@ -87,14 +93,15 @@ class AgentRuntime:
                 "# Mandatory Revisions (previous draft was REJECTED)\n"
                 + "\n".join(f"- {note}" for note in revision_notes)
             )
+        effective_tier = cost_tier or harness.cost_tier
         request = ModelRequest(
             messages=[
                 ModelMessage(role="system", content=system_prompt),
                 ModelMessage(role="user", content="\n\n".join(user_sections)),
             ],
-            cost_tier=harness.cost_tier,
+            cost_tier=effective_tier,
         )
-        provider, model = self._gateway.resolve(harness.cost_tier)
+        provider, model = self._gateway.resolve(effective_tier)
         emit(
             Event(
                 source="headmaster.agent_runtime",
@@ -147,4 +154,11 @@ class AgentRuntime:
                 },
             )
         )
-        return AgentDraft(bundle=bundle, content=content, raw_text=response.text)
+        return AgentDraft(
+            bundle=bundle,
+            content=content,
+            raw_text=response.text,
+            provider=response.provider,
+            model=response.model,
+            usage=response.usage,
+        )

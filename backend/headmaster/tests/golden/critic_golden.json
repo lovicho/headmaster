@@ -1,0 +1,37 @@
+[
+  {
+    "id": "full_proof_approved",
+    "harness": "content",
+    "response": "{\"ibf_proof\": {\"imitated_assets\": [\"asset_1\"], \"benchmarked_references\": [\"https://example.com\"], \"fusion_method\": \"Fused template with client facts.\"}, \"content\": \"copy\"}",
+    "expect_status": "APPROVED",
+    "expect_zero_shot": false
+  },
+  {
+    "id": "no_proof_zero_shot_rejected",
+    "harness": "content",
+    "response": "{\"content\": \"invented from a blank canvas\"}",
+    "expect_status": "REJECTED",
+    "expect_zero_shot": true
+  },
+  {
+    "id": "missing_benchmark_rejected",
+    "harness": "researcher",
+    "response": "{\"ibf_proof\": {\"imitated_assets\": [], \"benchmarked_references\": [], \"fusion_method\": \"n/a\"}, \"content\": \"report\"}",
+    "expect_status": "REJECTED",
+    "expect_zero_shot": true
+  },
+  {
+    "id": "benchmark_only_ok_for_researcher",
+    "harness": "researcher",
+    "response": "{\"ibf_proof\": {\"imitated_assets\": [], \"benchmarked_references\": [\"https://example.com/competitor\"], \"fusion_method\": \"Deconstructed competitor IA.\"}, \"content\": \"report\"}",
+    "expect_status": "APPROVED",
+    "expect_zero_shot": false
+  },
+  {
+    "id": "missing_fusion_rejected",
+    "harness": "content",
+    "response": "{\"ibf_proof\": {\"imitated_assets\": [\"asset_1\"], \"benchmarked_references\": [\"https://example.com\"], \"fusion_method\": \"\"}, \"content\": \"copy\"}",
+    "expect_status": "REJECTED",
+    "expect_zero_shot": false
+  }
+]
