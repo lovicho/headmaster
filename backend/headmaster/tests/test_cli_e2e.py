@@ -18,6 +18,8 @@ def test_cli_run_and_replay_offline(tmp_path: Path, capsys: object) -> None:
             "fake",
             "--store",
             str(store_path),
+            "--memory-store",
+            str(tmp_path / "memory.sqlite3"),
             "--artifact-dir",
             str(tmp_path / "artifacts"),
         ]
@@ -46,6 +48,8 @@ def test_cli_unknown_harness_fails(tmp_path: Path) -> None:
             "fake",
             "--store",
             str(tmp_path / "e.sqlite3"),
+            "--memory-store",
+            str(tmp_path / "m.sqlite3"),
             "--artifact-dir",
             str(tmp_path),
         ]

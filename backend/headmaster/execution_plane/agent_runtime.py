@@ -20,6 +20,7 @@ from headmaster.execution_plane.models.gateway import (
 from headmaster.schemas.events import Event, EventType
 from headmaster.schemas.evidence_bundle import EvidenceBundle, IBFProof
 from headmaster.schemas.harness_manifest import AgentHarness, IBFRequirements
+from headmaster.schemas.memory_record import MemoryRecord
 from headmaster.schemas.task_spec import TaskSpec
 
 EmitFn = Callable[[Event], None]
@@ -64,9 +65,19 @@ class AgentRuntime:
         requirements: IBFRequirements,
         revision_notes: list[str],
         emit: EmitFn,
+        supplied_assets: list[MemoryRecord] | None = None,
     ) -> AgentDraft:
         system_prompt = compile_system_prompt(harness, requirements)
         user_sections = [f"# Task\n{task.intent}"]
+        if supplied_assets:
+            user_sections.append(
+                "# Internal Assets [Mandatory_Imitation_Base]\n"
+                + "\n".join(
+                    f"- {asset.memory_id}: {asset.summary}" for asset in supplied_assets
+                )
+                + "\nWhen you imitate these assets, cite their ids in"
+                " ibf_proof.imitated_assets."
+            )
         if task.success_criteria:
             user_sections.append(
                 "# Success Criteria\n" + "\n".join(f"- {c}" for c in task.success_criteria)

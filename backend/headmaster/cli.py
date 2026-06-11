@@ -13,7 +13,9 @@ from pathlib import Path
 from headmaster.assurance_plane.critic_service import CriticService
 from headmaster.control_plane.harness_registry import load_all
 from headmaster.control_plane.task_compiler import compile_task
+from headmaster.control_plane.topology_selector import select_topology
 from headmaster.execution_plane.agent_runtime import AgentRuntime
+from headmaster.execution_plane.memory import KnowledgeManager, MemoryFabric
 from headmaster.execution_plane.models import (
     AnthropicAdapter,
     FakeAdapter,
@@ -44,6 +46,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="override the model provider (fake = offline demo)",
     )
     run.add_argument("--store", default="./data/events.sqlite3", help="event store path")
+    run.add_argument(
+        "--memory-store", default="./data/memory.sqlite3", help="memory fabric path"
+    )
     run.add_argument("--artifact-dir", default="./data/artifacts", help="artifact output dir")
     run.add_argument("--max-revisions", type=int, default=2)
 
@@ -78,26 +83,34 @@ async def _run(args: argparse.Namespace) -> int:
         return 1
 
     store = EventStore(args.store)
+    fabric = MemoryFabric(args.memory_store)
     try:
         orchestrator = Orchestrator(
             store=store,
             agent_runtime=AgentRuntime(_make_gateway(provider)),
             critic=CriticService(),
             registry=registry,
+            knowledge_manager=KnowledgeManager(fabric),
             max_revisions=args.max_revisions,
             artifact_dir=Path(args.artifact_dir),
         )
         spec = compile_task(args.text)
+        topology = select_topology(spec, registry[args.harness])
         print(f"task_id={spec.task_id}")
+        print(f"topology={topology.level.value} ({topology.reason})")
         result: OrchestratorResult = await orchestrator.run_task(spec, args.harness)
         _print_result(result)
         return 0 if result.final_state.value == "completed" else 1
     finally:
+        fabric.close()
         store.close()
 
 
 def _print_result(result: OrchestratorResult) -> None:
     print(f"final_state={result.final_state.value}")
+    print(f"supplied_assets={len(result.supplied_asset_ids)}")
+    if result.reused_asset_ids:
+        print(f"reused_assets={','.join(result.reused_asset_ids)}")
     for index, critique in enumerate(result.critiques):
         print(
             f"critique[{index}]: {critique.status.value}"

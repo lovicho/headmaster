@@ -2,6 +2,8 @@
 
 Phase 1 verifies field presence and consistency mechanically (1st report:
 the critic checks the existence and coherence of proof fields, not prose).
+Phase 2 adds referential integrity: imitated assets must come from the
+supplied [Mandatory_Imitation_Base] set, so agents cannot invent asset ids.
 An LLM-based critique pass layers on top in a later phase.
 """
 
@@ -35,6 +37,7 @@ class CriticService:
         bundle: EvidenceBundle,
         requirements: IBFRequirements,
         task_id: str | None = None,
+        supplied_asset_ids: set[str] | None = None,
     ) -> CritiqueReport:
         proof = bundle.ibf_proof
         if proof is None:
@@ -62,9 +65,15 @@ class CriticService:
                 requires_replan=True,
             )
 
-        imitation_ok = (
+        unknown_assets: list[str] = []
+        if supplied_asset_ids is not None:
+            unknown_assets = [
+                asset for asset in proof.imitated_assets if asset not in supplied_asset_ids
+            ]
+        imitation_present_ok = (
             not requirements.must_reference_internal_assets or bool(proof.imitated_assets)
         )
+        imitation_ok = imitation_present_ok and not unknown_assets
         benchmark_ok = (
             not requirements.must_reference_external_benchmarks
             or bool(proof.benchmarked_references)
@@ -75,7 +84,20 @@ class CriticService:
 
         findings: list[Finding] = []
         revisions: list[str] = []
-        if not imitation_ok:
+        if unknown_assets:
+            findings.append(
+                Finding(
+                    issue_type="missing_evidence",
+                    severity="critical",
+                    description=(
+                        "Referenced imitation assets are not in the supplied"
+                        f" [Mandatory_Imitation_Base] set: {', '.join(unknown_assets)}"
+                    ),
+                    proposed_fix="Reference only supplied imitation-base asset ids.",
+                )
+            )
+            revisions.append("Reference only supplied [Mandatory_Imitation_Base] asset ids.")
+        if not imitation_present_ok:
             findings.append(
                 Finding(
                     issue_type="missing_evidence",
@@ -108,6 +130,17 @@ class CriticService:
             )
             revisions.append("Describe the fusion methodology.")
 
+        if unknown_assets:
+            imitation_verdict = (
+                f"Fail - unknown asset reference(s): {', '.join(unknown_assets)}"
+            )
+        elif not imitation_present_ok:
+            imitation_verdict = "Fail - imitation source missing"
+        elif proof.imitated_assets:
+            imitation_verdict = "Pass - internal assets declared"
+        else:
+            imitation_verdict = "Pass - not required"
+
         def verdict(ok: bool, pass_msg: str, fail_msg: str) -> str:
             return f"Pass - {pass_msg}" if ok else f"Fail - {fail_msg}"
 
@@ -117,11 +150,7 @@ class CriticService:
             status=CritiqueStatus.APPROVED if approved else CritiqueStatus.REJECTED,
             zero_shot_detected=zero_shot,
             verification_details=VerificationDetails(
-                imitation_check=verdict(
-                    imitation_ok,
-                    "internal assets declared" if proof.imitated_assets else "not required",
-                    "imitation source missing",
-                ),
+                imitation_check=imitation_verdict,
                 benchmark_check=verdict(
                     benchmark_ok,
                     "benchmark references declared"
