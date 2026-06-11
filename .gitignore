@@ -1,0 +1,23 @@
+# Runtime logs
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+
+# Env / secrets
+.env
+.env.*
+
+# OS
+Thumbs.db
+.DS_Store
