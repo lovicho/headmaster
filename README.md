@@ -87,4 +87,5 @@ frontend/    React 제어 대시보드 (Vite + TS strict)
 - ✅ Phase 2 지식 순환 — Memory Fabric(격리/승격), KnowledgeManager, 정책 도구 게이트
 - ✅ Phase 3 보증 평면 — HITL 승인, 예산 관리, 오케스트라 fan-out, golden eval, 감사 추적
 - ✅ Phase 4a-c — 제어 API + HTTP 승인 큐, React 대시보드, 자기개선 루프, CI
-- ⏭️ 다음 — 실 LLM 파일럿(rejection taxonomy 수집), MCP transport, A2A, PostgreSQL/Temporal 검토
+- ✅ **실 LLM 파일럿 (agy/Gemini OAuth)** — 실모델이 공급 자산을 모방 베이스로 인용, I-B-F 게이트 1회 통과, KO 카피 + EN SEO 스키마 산출
+- ⏭️ 다음 — 에이전트 도구 호출 루프, RECOVERING 복구, MCP transport, A2A, PostgreSQL/Temporal 검토
