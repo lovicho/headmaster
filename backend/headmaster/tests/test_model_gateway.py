@@ -11,10 +11,13 @@ import pytest
 from headmaster.execution_plane.models import (
     AnthropicAdapter,
     FakeAdapter,
+    GeminiCliAdapter,
     ModelAdapter,
     ModelGateway,
+    ModelGatewayError,
     ModelMessage,
     ModelRequest,
+    ModelResponse,
     OpenAIAdapter,
     load_routing,
 )
@@ -77,10 +80,28 @@ def _openai_adapter() -> OpenAIAdapter:
     return OpenAIAdapter(api_key="test-key", client=client)
 
 
+def _gemini_adapter() -> GeminiCliAdapter:
+    async def runner(args: list[str]) -> tuple[int, bytes, bytes]:
+        prompt = args[args.index("-p") + 1]
+        assert "You are a test agent." in prompt
+        assert "Say hello." in prompt
+        assert args[args.index("-o") + 1] == "json"
+        assert args[args.index("-m") + 1] == "test-model"
+        payload = {
+            "response": "hello",
+            "stats": {
+                "models": {"test-model": {"tokens": {"prompt": 10, "candidates": 5}}}
+            },
+        }
+        return 0, json.dumps(payload).encode("utf-8"), b""
+
+    return GeminiCliAdapter(runner=runner)
+
+
 @pytest.mark.parametrize(
     "factory",
-    [_anthropic_adapter, _openai_adapter],
-    ids=["anthropic", "openai"],
+    [_anthropic_adapter, _openai_adapter, _gemini_adapter],
+    ids=["anthropic", "openai", "gemini"],
 )
 def test_adapter_contract(factory: Callable[[], ModelAdapter]) -> None:
     """The shared contract: same request in, same normalized response out."""
@@ -117,4 +138,25 @@ def test_gateway_dispatches_to_override_adapter() -> None:
 def test_gateway_unknown_provider_raises() -> None:
     gateway = ModelGateway(load_routing(), {})
     with pytest.raises(KeyError):
+        asyncio.run(gateway.complete(REQUEST))
+
+
+def test_gemini_cli_failure_raises_gateway_error() -> None:
+    async def failing_runner(args: list[str]) -> tuple[int, bytes, bytes]:
+        return 1, b"", b"oauth token expired"
+
+    adapter = GeminiCliAdapter(runner=failing_runner)
+    with pytest.raises(ModelGatewayError, match="oauth token expired"):
+        asyncio.run(adapter.complete(REQUEST, "test-model"))
+
+
+def test_gateway_wraps_adapter_errors() -> None:
+    class ExplodingAdapter(ModelAdapter):
+        provider = "anthropic"
+
+        async def complete(self, request: ModelRequest, model: str) -> ModelResponse:
+            raise RuntimeError("boom")
+
+    gateway = ModelGateway(load_routing(), {"anthropic": ExplodingAdapter()})
+    with pytest.raises(ModelGatewayError, match="boom"):
         asyncio.run(gateway.complete(REQUEST))

@@ -42,6 +42,10 @@ class ModelResponse(BaseModel):
     stop_reason: str | None = None
 
 
+class ModelGatewayError(Exception):
+    """Transient or provider-level model failure — recoverable by the orchestrator."""
+
+
 class ModelAdapter(ABC):
     """Contract every provider adapter must satisfy (verified by a shared test suite)."""
 
@@ -96,4 +100,9 @@ class ModelGateway:
         adapter = self._adapters.get(provider)
         if adapter is None:
             raise KeyError(f"no adapter registered for provider: {provider}")
-        return await adapter.complete(request, model)
+        try:
+            return await adapter.complete(request, model)
+        except ModelGatewayError:
+            raise
+        except Exception as err:
+            raise ModelGatewayError(f"{provider}/{model}: {err}") from err

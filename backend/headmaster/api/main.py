@@ -32,6 +32,7 @@ from headmaster.execution_plane.memory import KnowledgeManager, MemoryFabric
 from headmaster.execution_plane.models import (
     AnthropicAdapter,
     FakeAdapter,
+    GeminiCliAdapter,
     ModelAdapter,
     ModelGateway,
     OpenAIAdapter,
@@ -116,6 +117,7 @@ def create_app(
     adapters: dict[str, ModelAdapter] = {
         "anthropic": AnthropicAdapter(),
         "openai": OpenAIAdapter(),
+        "gemini": GeminiCliAdapter(),
         "fake": FakeAdapter(),
     }
     budget_config = load_budget_config()
