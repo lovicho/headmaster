@@ -65,6 +65,11 @@ uv run headmaster run "B2B 랜딩 카피 초안" --provider fake
 # 7 phase x 9 agent 오케스트라 작업
 uv run headmaster run "B2B 웹사이트 구축" --orchestra b2b_website_v8 --provider fake --approval grant
 
+# 로컬 OAuth CLI provider 사용
+uv run headmaster run "시장 조사 요약" --provider claude
+uv run headmaster run "기능 구현 계획" --provider codex
+uv run headmaster run "랜딩 페이지 초안" --provider agy
+
 # replay / metrics / golden eval / self-improvement
 uv run headmaster replay <task_id>
 uv run headmaster metrics
@@ -87,6 +92,8 @@ uv run headmaster serve --provider fake
 
 ## 실제 모델 provider
 
+- `--provider claude`: Claude Code CLI OAuth 기반 실행. 먼저 `claude auth login`을 완료해야 합니다.
+- `--provider codex`: Codex CLI ChatGPT OAuth 기반 실행. 먼저 `codex login`을 완료해야 합니다.
 - `--provider agy`: Google Antigravity CLI OAuth 기반 실행
 - `--provider gemini`: Gemini CLI OAuth 기반 실행
 - `--provider anthropic`: `ANTHROPIC_API_KEY` 필요

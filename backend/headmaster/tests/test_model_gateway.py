@@ -11,6 +11,8 @@ import pytest
 from headmaster.execution_plane.models import (
     AgyCliAdapter,
     AnthropicAdapter,
+    ClaudeCodeCliAdapter,
+    CodexCliAdapter,
     FakeAdapter,
     GeminiCliAdapter,
     ModelAdapter,
@@ -100,10 +102,27 @@ def _gemini_adapter() -> GeminiCliAdapter:
     return GeminiCliAdapter(runner=runner)
 
 
+def _claude_adapter() -> ClaudeCodeCliAdapter:
+    async def runner(args: list[str]) -> tuple[int, bytes, bytes]:
+        prompt = args[args.index("-p") + 1]
+        assert "You are a test agent." in prompt
+        assert "Say hello." in prompt
+        assert args[args.index("--output-format") + 1] == "json"
+        assert args[args.index("--model") + 1] == "test-model"
+        payload = {
+            "result": "hello",
+            "model": "test-model",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        return 0, json.dumps(payload).encode("utf-8"), b""
+
+    return ClaudeCodeCliAdapter(runner=runner)
+
+
 @pytest.mark.parametrize(
     "factory",
-    [_anthropic_adapter, _openai_adapter, _gemini_adapter],
-    ids=["anthropic", "openai", "gemini"],
+    [_anthropic_adapter, _openai_adapter, _gemini_adapter, _claude_adapter],
+    ids=["anthropic", "openai", "gemini", "claude"],
 )
 def test_adapter_contract(factory: Callable[[], ModelAdapter]) -> None:
     """The shared contract: same request in, same normalized response out."""
@@ -137,6 +156,17 @@ def test_gateway_dispatches_to_override_adapter() -> None:
     assert len(fake.calls) == 1
 
 
+def test_routing_resolution_for_oauth_cli_overrides() -> None:
+    routing = load_routing()
+    claude = ModelGateway(routing, {"claude": ClaudeCodeCliAdapter()}, provider_override="claude")
+    assert claude.resolve(CostTier.MINI) == ("claude", "haiku")
+    assert claude.resolve(CostTier.STANDARD) == ("claude", "sonnet")
+
+    codex = ModelGateway(routing, {"codex": CodexCliAdapter()}, provider_override="codex")
+    assert codex.resolve(CostTier.MINI) == ("codex", "gpt-5.4-mini")
+    assert codex.resolve(CostTier.HEAVY) == ("codex", "gpt-5.5")
+
+
 def test_gateway_unknown_provider_raises() -> None:
     gateway = ModelGateway(load_routing(), {})
     with pytest.raises(KeyError):
@@ -149,6 +179,45 @@ def test_gemini_cli_failure_raises_gateway_error() -> None:
 
     adapter = GeminiCliAdapter(runner=failing_runner)
     with pytest.raises(ModelGatewayError, match="oauth token expired"):
+        asyncio.run(adapter.complete(REQUEST, "test-model"))
+
+
+def test_codex_adapter_contract_with_fake_runner() -> None:
+    async def runner(args: list[str]) -> tuple[int, bytes, bytes]:
+        assert args[:2] == ["codex", "exec"]
+        assert "--ephemeral" in args
+        assert args[args.index("--sandbox") + 1] == "read-only"
+        assert args[args.index("--ask-for-approval") + 1] == "never"
+        assert "--skip-git-repo-check" in args
+        assert args[args.index("--model") + 1] == "test-model"
+        prompt = args[-1]
+        assert "You are a test agent." in prompt
+        assert "Say hello." in prompt
+        return 0, b"hello", b"progress"
+
+    adapter = CodexCliAdapter(runner=runner)
+    response = asyncio.run(adapter.complete(REQUEST, "test-model"))
+    assert response.text == "hello"
+    assert response.provider == "codex"
+    assert response.model == "test-model"
+    assert response.stop_reason == "end_turn"
+
+
+def test_claude_cli_failure_raises_gateway_error() -> None:
+    async def failing_runner(args: list[str]) -> tuple[int, bytes, bytes]:
+        return 1, b"", b"not logged in"
+
+    adapter = ClaudeCodeCliAdapter(runner=failing_runner)
+    with pytest.raises(ModelGatewayError, match="not logged in"):
+        asyncio.run(adapter.complete(REQUEST, "test-model"))
+
+
+def test_codex_cli_failure_raises_gateway_error() -> None:
+    async def failing_runner(args: list[str]) -> tuple[int, bytes, bytes]:
+        return 1, b"", b"not logged in"
+
+    adapter = CodexCliAdapter(runner=failing_runner)
+    with pytest.raises(ModelGatewayError, match="not logged in"):
         asyncio.run(adapter.complete(REQUEST, "test-model"))
 
 
