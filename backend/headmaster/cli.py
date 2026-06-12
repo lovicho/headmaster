@@ -100,6 +100,18 @@ def _build_parser() -> argparse.ArgumentParser:
         default="../frontend/dist",
         help="dashboard static files dir (ignored when missing)",
     )
+
+    improve = sub.add_parser(
+        "improve", help="analyze failures and propose/promote harness patches"
+    )
+    improve.add_argument("--store", default="./data/events.sqlite3", help="event store path")
+    improve.add_argument("--min-count", type=int, default=2, help="pattern threshold")
+    improve.add_argument(
+        "--apply",
+        action="store_true",
+        help="promote validated patches into harness templates (default: dry-run)",
+    )
+    improve.add_argument("--golden", default=str(_DEFAULT_GOLDEN), help="golden set path")
     return parser
 
 
@@ -254,6 +266,45 @@ def _serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _improve(args: argparse.Namespace) -> int:
+    from headmaster.assurance_plane.self_improvement import (
+        analyze_failures,
+        promote_patch,
+        propose_patches,
+    )
+    from headmaster.control_plane.harness_registry import TEMPLATES_DIR
+
+    registry = {
+        harness_id: harness
+        for harness_id, harness in load_all().items()
+        if isinstance(harness, AgentHarness)
+    }
+    store = EventStore(args.store)
+    try:
+        report = analyze_failures(store, min_count=args.min_count)
+        print(f"total_rejections={report.total_rejections}")
+        for pattern in report.patterns:
+            print(f"pattern: {pattern.harness_id}/{pattern.issue_type} x{pattern.count}")
+        patches = propose_patches(report, registry)
+        if not patches:
+            print("no patches proposed")
+            return 0
+        for patch in patches:
+            print(f"proposed [{patch.patch_id}] {patch.harness_id}: {patch.rationale}")
+            if not args.apply:
+                continue
+            written = promote_patch(patch, registry, TEMPLATES_DIR, Path(args.golden))
+            if written is None:
+                print("  -> BLOCKED (golden regression or already applied)")
+            else:
+                print(f"  -> PROMOTED {written}")
+        if not args.apply:
+            print("dry-run - pass --apply to promote validated patches")
+        return 0
+    finally:
+        store.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "run":
@@ -264,6 +315,8 @@ def main(argv: list[str] | None = None) -> int:
         return _eval(args)
     if args.command == "serve":
         return _serve(args)
+    if args.command == "improve":
+        return _improve(args)
     return _replay(args)
 
 
