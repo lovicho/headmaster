@@ -90,7 +90,8 @@ Headmaster는 이 문제를 “모델 호출”이 아니라 “작업 운영”
 | Phase 3 | 구현됨 | HITL 승인, 예산 관리, fan-out 오케스트라, golden eval, audit |
 | Phase 4 | 구현됨 | FastAPI 제어 API, 재시작 복구, React 대시보드, self-improvement, OAuth CLI provider |
 | Phase 5a | 구현됨 | Critic rejection taxonomy, dashboard rejection code badges, code-aware self-improvement |
-| 다음 후보 | 예정 | MCP transport, A2A, PostgreSQL/Temporal 검토 |
+| Phase 5b | 구현됨 | MIT LICENSE, MCP stdio transport, PostgreSQL/Temporal 검토 문서 |
+| 다음 후보 | 예정 | A2A, PostgreSQL persistence adapter, Temporal workflow wrapper |
 
 현재 기본 저장소는 로컬 SQLite 기반입니다. 장기 운영이나 다중 사용자 배포를 위해서는 PostgreSQL, durable workflow runtime, 권한 모델, 장기 artifact storage를 추가하는 것이 다음 단계입니다.
 
@@ -286,6 +287,7 @@ Replay는 모델을 다시 호출하지 않습니다. 이미 기록된 이벤트
 | `frontend/src/App.tsx` | React 대시보드의 최상위 컴포넌트입니다. |
 | `docs/recovery-runbook.md` | 재시작/복구 경계를 설명합니다. |
 | `docs/cli-agent-integrations.md` | Claude Code, Codex, AGY 호출 방법을 설명합니다. |
+| `docs/persistence-temporal-review.md` | PostgreSQL/Temporal 도입 순서와 경계를 설명합니다. |
 
 ## 요구사항
 
@@ -817,6 +819,25 @@ backend/data/memory.sqlite3
 
 `rag_search`는 Memory Fabric에서 관련 내부 자산을 검색하고, agent가 해당 asset ID를 I-B-F Proof에 사용할 수 있게 합니다.
 
+MCP stdio transport도 구현되어 있습니다. `register_mcp_stdio_server`는 MCP 서버에서 `tools/list`로 도구를 발견하고, 기존 `ToolGateway` 뒤에 `mcp_<server>_<tool>` 이름으로 등록합니다. 실제 호출은 MCP `tools/call`을 사용하며, Headmaster의 기존 allowlist와 event logging 경계를 그대로 통과합니다.
+
+MCP 서버는 다음 JSON 형태로 정의할 수 있습니다.
+
+```json
+{
+  "servers": [
+    {
+      "name": "filesystem",
+      "command": "node",
+      "args": ["path/to/server.js"],
+      "tool_prefix": "mcp_fs"
+    }
+  ]
+}
+```
+
+현재 CLI/API 자동 로딩은 아직 켜지지 않았습니다. 운영 연결 단계에서는 이 config loader를 `headmaster serve`와 `headmaster run` 옵션에 연결하면 됩니다.
+
 지식 순환 흐름:
 
 1. 작업 실행 중 필요한 내부 자산을 검색합니다.
@@ -1007,6 +1028,7 @@ npm run smoke
 | [plan/03_검증기준.md](plan/03_검증기준.md) | 검증 기준 |
 | [docs/recovery-runbook.md](docs/recovery-runbook.md) | 운영 복구 절차 |
 | [docs/cli-agent-integrations.md](docs/cli-agent-integrations.md) | Claude/Codex/AGY 연동 |
+| [docs/persistence-temporal-review.md](docs/persistence-temporal-review.md) | PostgreSQL/Temporal 검토 |
 | [소스자료/리서치](소스자료/리서치) | 설계 리서치 보고서 |
 | [소스자료/테스트설계](소스자료/테스트설계) | 테스트 설계 자료 |
 
@@ -1014,10 +1036,9 @@ npm run smoke
 
 가까운 후속 작업:
 
-- MCP transport를 추가해 외부 도구와 knowledge source를 표준 연결합니다.
 - A2A 또는 유사한 agent-to-agent protocol 검토를 진행합니다.
-- PostgreSQL 기반 event store와 memory store를 추가합니다.
-- Temporal 같은 durable workflow runtime을 검토합니다.
+- PostgreSQL 기반 event store와 memory store adapter를 추가합니다.
+- Temporal thin workflow wrapper를 구현합니다.
 - artifact storage를 파일 시스템에서 object storage로 확장합니다.
 - provider별 live smoke test를 선택적으로 실행하는 테스트 계층을 추가합니다.
 - dashboard에서 event trace diff와 approval recovery view를 강화합니다.
@@ -1028,8 +1049,8 @@ npm run smoke
 - 일부 승인 재개 흐름은 재시작 후 자동 재개하지 않고 conflict로 처리합니다.
 - 실제 provider 호출은 각 CLI/API 계정의 quota와 정책에 의존합니다.
 - Codex custom prompt는 fallback이며, 장기적으로는 skill 중심 사용을 권장합니다.
-- 라이선스 파일은 아직 포함되어 있지 않습니다.
+- MCP stdio transport는 구현되어 있지만 CLI/API 자동 로딩 옵션은 아직 연결하지 않았습니다.
 
 ## 라이선스
 
-현재 이 저장소에는 별도의 `LICENSE` 파일이 없습니다. 배포, 재사용, 외부 공개 범위를 확정하려면 라이선스를 먼저 추가해야 합니다.
+이 저장소는 [MIT License](LICENSE)를 사용합니다.
