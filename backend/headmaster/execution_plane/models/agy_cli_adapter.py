@@ -58,7 +58,7 @@ def _isolated_cwd() -> str:
 
 
 def _conpty_runner(args: list[str] | str, timeout_s: float) -> str:
-    from winpty import PtyProcess  # type: ignore[import-untyped]  # Windows-only
+    from winpty import PtyProcess  # type: ignore[import-not-found,import-untyped,unused-ignore]  # noqa: I001
 
     process = PtyProcess.spawn(args, dimensions=(120, 9000), cwd=_isolated_cwd())
     chunks: list[str] = []

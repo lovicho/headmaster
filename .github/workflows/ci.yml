@@ -46,3 +46,5 @@ jobs:
         run: npm ci
       - name: Type check + build
         run: npm run build
+      - name: Dashboard smoke
+        run: npm run smoke

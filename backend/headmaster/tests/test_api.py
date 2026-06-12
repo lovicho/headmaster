@@ -8,7 +8,9 @@ import pytest
 from fastapi import FastAPI
 
 from headmaster.api.main import create_app
+from headmaster.control_plane.task_compiler import compile_task
 from headmaster.execution_plane.memory import MemoryFabric
+from headmaster.schemas import ApprovalKind, ApprovalTicket, Event, EventType, TaskState
 from headmaster.storage.event_store import EventStore
 
 
@@ -233,6 +235,91 @@ async def test_publish_approval_can_be_granted_after_restart(tmp_path: Path) -> 
         artifact = await client.get(f"/v1/tasks/{task_id}/artifact")
         assert artifact.status_code == 200
         assert artifact.json()["content"]
+
+
+def _append_state(
+    store: EventStore, task_id: str, current: TaskState, target: TaskState
+) -> None:
+    store.append(
+        Event(
+            source="headmaster.tests.api",
+            type=EventType.STATE_CHANGED,
+            subject=task_id,
+            data={"from": current.value, "to": target.value},
+        )
+    )
+
+
+def _seed_mid_run_approval(store: EventStore, kind: ApprovalKind) -> ApprovalTicket:
+    spec = compile_task(f"restart boundary for {kind}")
+    ticket = ApprovalTicket(
+        task_id=spec.task_id,
+        kind=kind,
+        reason=f"{kind} requires a live orchestrator coroutine",
+    )
+    store.append(
+        Event(
+            source="headmaster.tests.api",
+            type=EventType.TASK_REGISTERED,
+            subject=spec.task_id,
+            data={"spec": spec.model_dump(mode="json")},
+        )
+    )
+    _append_state(store, spec.task_id, TaskState.REGISTERED, TaskState.CLASSIFIED)
+    _append_state(store, spec.task_id, TaskState.CLASSIFIED, TaskState.PLANNED)
+    _append_state(store, spec.task_id, TaskState.PLANNED, TaskState.EXECUTING)
+    _append_state(
+        store,
+        spec.task_id,
+        TaskState.EXECUTING,
+        TaskState.AWAITING_HUMAN_APPROVAL,
+    )
+    store.append(
+        Event(
+            source="headmaster.tests.api",
+            type=EventType.APPROVAL_REQUESTED,
+            subject=spec.task_id,
+            data=ticket.model_dump(mode="json"),
+        )
+    )
+    return ticket
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("kind", ["budget_overrun", "phase_gate"])
+async def test_mid_run_approval_grant_after_restart_returns_conflict(
+    tmp_path: Path, kind: ApprovalKind
+) -> None:
+    store_path = tmp_path / f"{kind}.sqlite3"
+    store = EventStore(store_path)
+    ticket = _seed_mid_run_approval(store, kind)
+    store.close()
+
+    async with _client(
+        _app(
+            store=EventStore(store_path),
+            fabric=MemoryFabric(tmp_path / f"{kind}-memory.sqlite3"),
+        )
+    ) as client:
+        approvals = await client.get("/v1/approvals")
+        assert ticket.ticket_id in [item["ticket_id"] for item in approvals.json()]
+
+        granted = await client.post(
+            f"/v1/approvals/{ticket.ticket_id}",
+            json={"granted": True, "approver": "boss"},
+        )
+        assert granted.status_code == 409
+        assert "after restart" in granted.json()["detail"]
+
+        denied = await client.post(
+            f"/v1/approvals/{ticket.ticket_id}",
+            json={"granted": False, "approver": "boss"},
+        )
+        assert denied.status_code == 200
+
+        status = await client.get(f"/v1/tasks/{ticket.task_id}")
+        assert status.json()["state"] == "failed"
+        assert status.json()["failure_reason"] == "approval_denied"
 
 
 @pytest.mark.anyio

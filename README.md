@@ -35,6 +35,7 @@ Assurance Plane  Critic / Approval Gateway / Eval Runner
 - `plan/01_해마_구현계획.md`
 - `plan/02_스키마_명세.md`
 - `plan/03_검증기준.md`
+- `docs/recovery-runbook.md`
 
 ## 운영 복구와 안전 경계
 
@@ -48,6 +49,8 @@ Headmaster는 이벤트 로그를 기준으로 작업 상태를 복원합니다.
 - `budget_overrun`과 중간 `phase_gate`의 grant 재개는 아직 자동화하지 않습니다. 실행 컨텍스트를 완전히 재구성해야 하므로, 재시작 후 grant 요청에는 명확한 conflict 응답을 반환합니다. deny는 안전하게 실패 상태로 닫습니다.
 
 백그라운드 작업이 예외로 종료되면 중간 상태에 고착되지 않고 `task.failed` 이벤트가 기록됩니다. 또한 cold start 상황에서도 모델이 존재하지 않는 내부 자산 ID를 `imitated_assets`에 적으면 Critic이 반려합니다.
+
+운영 절차와 재시작 경계는 `docs/recovery-runbook.md`에 정리되어 있습니다.
 
 ## 빠른 시작
 
@@ -101,6 +104,7 @@ uv run headmaster eval
 
 cd ../frontend
 npm run build
+npm run smoke
 npm audit --audit-level=moderate
 ```
 
