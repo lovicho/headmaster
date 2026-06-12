@@ -8,15 +8,19 @@ scripted responses to exercise rejection/replan paths.
 
 import json
 import re
+from collections.abc import Sequence
 
 from headmaster.execution_plane.models.gateway import (
     ModelAdapter,
     ModelRequest,
     ModelResponse,
     ModelUsage,
+    ToolCall,
 )
 
 _ASSET_ID = re.compile(r"mem_[0-9a-f]{32}")
+
+FakeScript = str | Exception | list[ToolCall]
 
 
 def _default_response(request: ModelRequest) -> str:
@@ -37,17 +41,33 @@ def _default_response(request: ModelRequest) -> str:
 class FakeAdapter(ModelAdapter):
     provider = "fake"
 
-    def __init__(self, responses: list[str] | None = None) -> None:
-        self._responses = list(responses) if responses else []
+    def __init__(self, responses: Sequence[FakeScript] | None = None) -> None:
+        self._responses: list[FakeScript] = list(responses) if responses else []
         self.calls: list[ModelRequest] = []
 
     async def complete(self, request: ModelRequest, model: str) -> ModelResponse:
         self.calls.append(request)
-        text = self._responses.pop(0) if self._responses else _default_response(request)
+        usage = ModelUsage(input_tokens=100, output_tokens=50)
+        if self._responses:
+            item = self._responses.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            if isinstance(item, list):
+                return ModelResponse(
+                    text="",
+                    provider=self.provider,
+                    model=model,
+                    usage=usage,
+                    stop_reason="tool_use",
+                    tool_calls=item,
+                )
+            text = item
+        else:
+            text = _default_response(request)
         return ModelResponse(
             text=text,
             provider=self.provider,
             model=model,
-            usage=ModelUsage(input_tokens=100, output_tokens=50),
+            usage=usage,
             stop_reason="end_turn",
         )

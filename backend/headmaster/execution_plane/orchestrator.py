@@ -25,6 +25,7 @@ from headmaster.assurance_plane.critic_service import CriticService, requirement
 from headmaster.control_plane.budget_ledger import BudgetLedger, PricingTable
 from headmaster.execution_plane.agent_runtime import AgentDraft, AgentRuntime
 from headmaster.execution_plane.memory.knowledge_manager import KnowledgeManager
+from headmaster.execution_plane.models.gateway import ModelGatewayError
 from headmaster.schemas.approval import ApprovalDecision, ApprovalTicket
 from headmaster.schemas.artifact import Artifact, content_sha256
 from headmaster.schemas.critique_report import CritiqueReport
@@ -66,6 +67,7 @@ class Orchestrator:
         pricing: PricingTable | None = None,
         soft_ratio: float = 0.8,
         max_revisions: int = 2,
+        max_recoveries: int = 2,
         artifact_dir: Path | None = None,
     ) -> None:
         self._store = store
@@ -77,6 +79,7 @@ class Orchestrator:
         self._pricing = pricing or {}
         self._soft_ratio = soft_ratio
         self._max_revisions = max_revisions
+        self._max_recoveries = max_recoveries
         self._artifact_dir = artifact_dir
 
     # ----- primitives -------------------------------------------------
@@ -327,6 +330,7 @@ class Orchestrator:
         critiques: list[CritiqueReport] = []
         revision_notes: list[str] = []
         attempt = 0
+        recoveries = 0
         while True:
             state = self._transition(task_id, state, TaskState.EXECUTING)
             state, overrun_approved, halted = await self._check_hard_budget(
@@ -345,16 +349,37 @@ class Orchestrator:
                 EventType.AGENT_DISPATCHED,
                 {"agent": harness_id, "attempt": attempt},
             )
-            draft, critique = await self._execute_agent(
-                spec=spec,
-                harness=harness,
-                requirements=requirements,
-                revision_notes=revision_notes,
-                supplied=supplied,
-                supplied_ids=supplied_ids,
-                ledger=ledger,
-                soft_announced=soft_announced,
-            )
+            while True:
+                try:
+                    draft, critique = await self._execute_agent(
+                        spec=spec,
+                        harness=harness,
+                        requirements=requirements,
+                        revision_notes=revision_notes,
+                        supplied=supplied,
+                        supplied_ids=supplied_ids,
+                        ledger=ledger,
+                        soft_announced=soft_announced,
+                    )
+                    break
+                except ModelGatewayError as err:
+                    if recoveries >= self._max_recoveries:
+                        state = self._fail(spec, state, "model_error", error=str(err))
+                        return OrchestratorResult(
+                            task_id=task_id,
+                            final_state=state,
+                            critiques=critiques,
+                            supplied_asset_ids=sorted(supplied_ids),
+                            failure_reason="model_error",
+                        )
+                    recoveries += 1
+                    state = self._transition(task_id, state, TaskState.RECOVERING)
+                    self._emit(
+                        task_id,
+                        EventType.RECOVERY_STARTED,
+                        {"agent": harness_id, "error": str(err), "attempt": recoveries},
+                    )
+                    state = self._transition(task_id, state, TaskState.EXECUTING)
             state = self._transition(task_id, state, TaskState.CRITIQUING)
             critiques.append(critique)
 
@@ -500,6 +525,7 @@ class Orchestrator:
         reused_total: set[str] = set()
         last_bundle_id = ""
         last_critique: CritiqueReport | None = None
+        recoveries = 0
 
         for index, phase in enumerate(orchestra.phases):
             is_last = index == len(orchestra.phases) - 1
@@ -526,23 +552,67 @@ class Orchestrator:
                         EventType.AGENT_DISPATCHED,
                         {"agent": agent_id, "phase": phase.phase_id, "attempt": attempt},
                     )
-                results = await asyncio.gather(
-                    *(
-                        self._execute_agent(
-                            spec=spec,
-                            harness=self._registry[agent_id],
-                            requirements=self._effective_requirements(
-                                self._registry[agent_id], supplied
-                            ),
-                            revision_notes=pending[agent_id],
-                            supplied=supplied,
-                            supplied_ids=supplied_ids,
-                            ledger=ledger,
-                            soft_announced=soft_announced,
-                        )
-                        for agent_id in agents
+                # fan-out with per-agent recovery: only failed agents re-run
+                round_results: dict[str, tuple[AgentDraft, CritiqueReport]] = {}
+                to_run = list(agents)
+                while to_run:
+                    outcomes = await asyncio.gather(
+                        *(
+                            self._execute_agent(
+                                spec=spec,
+                                harness=self._registry[agent_id],
+                                requirements=self._effective_requirements(
+                                    self._registry[agent_id], supplied
+                                ),
+                                revision_notes=pending[agent_id],
+                                supplied=supplied,
+                                supplied_ids=supplied_ids,
+                                ledger=ledger,
+                                soft_announced=soft_announced,
+                            )
+                            for agent_id in to_run
+                        ),
+                        return_exceptions=True,
                     )
-                )
+                    failed: list[str] = []
+                    last_error: ModelGatewayError | None = None
+                    for agent_id, outcome in zip(to_run, outcomes, strict=True):
+                        if isinstance(outcome, ModelGatewayError):
+                            failed.append(agent_id)
+                            last_error = outcome
+                            self._emit(
+                                task_id,
+                                EventType.RECOVERY_STARTED,
+                                {
+                                    "agent": agent_id,
+                                    "error": str(outcome),
+                                    "attempt": recoveries + 1,
+                                },
+                            )
+                        elif isinstance(outcome, BaseException):
+                            raise outcome
+                        else:
+                            round_results[agent_id] = outcome
+                    if not failed:
+                        break
+                    if recoveries >= self._max_recoveries:
+                        state = self._fail(
+                            spec,
+                            state,
+                            "model_error",
+                            agents=failed,
+                            error=str(last_error),
+                        )
+                        return OrchestratorResult(
+                            task_id=task_id,
+                            final_state=state,
+                            critiques=critiques,
+                            supplied_asset_ids=sorted(supplied_ids),
+                            failure_reason="model_error",
+                        )
+                    recoveries += 1
+                    to_run = failed
+                results = [round_results[agent_id] for agent_id in agents]
                 state = self._transition(task_id, state, TaskState.CRITIQUING)
                 rejected: dict[str, list[str]] = {}
                 for agent_id, (draft, critique) in zip(agents, results, strict=True):

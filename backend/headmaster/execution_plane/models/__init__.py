@@ -13,6 +13,8 @@ from headmaster.execution_plane.models.gateway import (
     ModelRoutingConfig,
     ModelUsage,
     TierRoute,
+    ToolCall,
+    ToolSpec,
     load_routing,
 )
 from headmaster.execution_plane.models.gemini_cli_adapter import GeminiCliAdapter
@@ -33,5 +35,7 @@ __all__ = [
     "ModelUsage",
     "OpenAIAdapter",
     "TierRoute",
+    "ToolCall",
+    "ToolSpec",
     "load_routing",
 ]

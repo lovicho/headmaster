@@ -40,6 +40,7 @@ from headmaster.execution_plane.models import (
     load_routing,
 )
 from headmaster.execution_plane.orchestrator import Orchestrator
+from headmaster.execution_plane.tools import build_default_tool_gateway
 from headmaster.schemas.approval import ApprovalDecision, ApprovalTicket
 from headmaster.schemas.harness_manifest import AgentHarness, OrchestraHarness
 from headmaster.schemas.task_spec import Budget
@@ -127,7 +128,8 @@ def create_app(
     orchestrator = Orchestrator(
         store=store,
         agent_runtime=AgentRuntime(
-            ModelGateway(load_routing(), adapters, provider_override=provider)
+            ModelGateway(load_routing(), adapters, provider_override=provider),
+            tool_gateway=build_default_tool_gateway(fabric),
         ),
         critic=CriticService(),
         registry=registry,

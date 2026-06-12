@@ -7,7 +7,7 @@ request/response shapes never leak past the adapters.
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import Any, ClassVar, Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -17,9 +17,27 @@ from headmaster.schemas.common import CostTier
 CONFIG_DIR = Path(__file__).resolve().parent.parent.parent / "config"
 
 
+class ToolSpec(BaseModel):
+    """Provider-agnostic tool declaration offered to the model."""
+
+    name: str
+    description: str = ""
+    input_schema: dict[str, Any] = Field(default_factory=lambda: {"type": "object"})
+
+
+class ToolCall(BaseModel):
+    """Normalized tool invocation requested by the model."""
+
+    call_id: str
+    name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+
 class ModelMessage(BaseModel):
-    role: Literal["system", "user", "assistant"]
-    content: str
+    role: Literal["system", "user", "assistant", "tool"]
+    content: str = ""
+    tool_calls: list[ToolCall] = Field(default_factory=list)  # assistant turns
+    tool_call_id: str | None = None  # tool-result turns
 
 
 class ModelRequest(BaseModel):
@@ -27,6 +45,7 @@ class ModelRequest(BaseModel):
     cost_tier: CostTier = CostTier.MINI
     max_tokens: int = 4096
     temperature: float = 0.2
+    tools: list[ToolSpec] = Field(default_factory=list)
 
 
 class ModelUsage(BaseModel):
@@ -40,6 +59,7 @@ class ModelResponse(BaseModel):
     model: str
     usage: ModelUsage = Field(default_factory=ModelUsage)
     stop_reason: str | None = None
+    tool_calls: list[ToolCall] = Field(default_factory=list)
 
 
 class ModelGatewayError(Exception):

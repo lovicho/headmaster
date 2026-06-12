@@ -1,7 +1,11 @@
 """Agent runtime — executes one harnessed agent turn against the model gateway.
 
-Emits model.called / model.responded / artifact.produced events so the
-event log fully covers every model interaction (gate 1-5).
+Tool use: tools offered to the model are the intersection of the harness
+allowlist and the registered gateway tools. Every call passes the policy
+engine; denials are fed back to the model as tool results (the agent learns
+the boundary instead of crashing). Emits model.called / model.responded /
+tool events / artifact.produced so the event log fully covers every
+interaction (gate 1-5).
 """
 
 import json
@@ -12,12 +16,14 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from headmaster.control_plane.harness_compiler import compile_system_prompt
+from headmaster.control_plane.policy_engine import PolicyViolationError
 from headmaster.execution_plane.models.gateway import (
     ModelGateway,
     ModelMessage,
     ModelRequest,
     ModelUsage,
 )
+from headmaster.execution_plane.tools.tool_gateway import ToolGateway
 from headmaster.schemas.common import CostTier
 from headmaster.schemas.events import Event, EventType
 from headmaster.schemas.evidence_bundle import EvidenceBundle, IBFProof
@@ -59,8 +65,44 @@ class AgentDraft(BaseModel):
 
 
 class AgentRuntime:
-    def __init__(self, gateway: ModelGateway) -> None:
+    def __init__(
+        self,
+        gateway: ModelGateway,
+        tool_gateway: ToolGateway | None = None,
+        max_tool_rounds: int = 4,
+    ) -> None:
         self._gateway = gateway
+        self._tool_gateway = tool_gateway
+        self._max_tool_rounds = max_tool_rounds
+
+    async def _run_tool_calls(
+        self,
+        *,
+        harness: AgentHarness,
+        task: TaskSpec,
+        calls: list[Any],
+        emit: EmitFn,
+    ) -> list[ModelMessage]:
+        assert self._tool_gateway is not None
+        results: list[ModelMessage] = []
+        for call in calls:
+            try:
+                outcome = await self._tool_gateway.call(
+                    harness=harness,
+                    tool_name=call.name,
+                    arguments=call.arguments,
+                    task_id=task.task_id,
+                    emit=emit,
+                )
+                result_text = str(outcome)
+            except PolicyViolationError as err:
+                result_text = f"DENIED by policy: {err.reason}"
+            except KeyError as err:
+                result_text = f"TOOL ERROR: {err}"
+            results.append(
+                ModelMessage(role="tool", content=result_text, tool_call_id=call.call_id)
+            )
+        return results
 
     async def run(
         self,
@@ -93,39 +135,74 @@ class AgentRuntime:
                 "# Mandatory Revisions (previous draft was REJECTED)\n"
                 + "\n".join(f"- {note}" for note in revision_notes)
             )
+
         effective_tier = cost_tier or harness.cost_tier
-        request = ModelRequest(
-            messages=[
-                ModelMessage(role="system", content=system_prompt),
-                ModelMessage(role="user", content="\n\n".join(user_sections)),
-            ],
-            cost_tier=effective_tier,
-        )
-        provider, model = self._gateway.resolve(effective_tier)
-        emit(
-            Event(
-                source="headmaster.agent_runtime",
-                type=EventType.MODEL_CALLED,
-                subject=task.task_id,
-                data={"agent": harness.harness_id, "provider": provider, "model": model},
+        tools = self._tool_gateway.specs_for(harness) if self._tool_gateway else []
+        messages = [
+            ModelMessage(role="system", content=system_prompt),
+            ModelMessage(role="user", content="\n\n".join(user_sections)),
+        ]
+        total_usage = ModelUsage()
+        rounds = 0
+        while True:
+            request = ModelRequest(
+                messages=list(messages), cost_tier=effective_tier, tools=tools
             )
-        )
-        response = await self._gateway.complete(request)
-        emit(
-            Event(
-                source="headmaster.agent_runtime",
-                type=EventType.MODEL_RESPONDED,
-                subject=task.task_id,
-                data={
-                    "agent": harness.harness_id,
-                    "provider": response.provider,
-                    "model": response.model,
-                    "usage": response.usage.model_dump(),
-                    "stop_reason": response.stop_reason,
-                    "text": response.text,
-                },
+            provider, model = self._gateway.resolve(effective_tier)
+            emit(
+                Event(
+                    source="headmaster.agent_runtime",
+                    type=EventType.MODEL_CALLED,
+                    subject=task.task_id,
+                    data={
+                        "agent": harness.harness_id,
+                        "provider": provider,
+                        "model": model,
+                        "round": rounds,
+                    },
+                )
             )
-        )
+            response = await self._gateway.complete(request)
+            total_usage = ModelUsage(
+                input_tokens=total_usage.input_tokens + response.usage.input_tokens,
+                output_tokens=total_usage.output_tokens + response.usage.output_tokens,
+            )
+            emit(
+                Event(
+                    source="headmaster.agent_runtime",
+                    type=EventType.MODEL_RESPONDED,
+                    subject=task.task_id,
+                    data={
+                        "agent": harness.harness_id,
+                        "provider": response.provider,
+                        "model": response.model,
+                        "usage": response.usage.model_dump(),
+                        "stop_reason": response.stop_reason,
+                        "tool_calls": len(response.tool_calls),
+                        "text": response.text,
+                    },
+                )
+            )
+            if (
+                response.tool_calls
+                and self._tool_gateway is not None
+                and rounds < self._max_tool_rounds
+            ):
+                rounds += 1
+                messages.append(
+                    ModelMessage(
+                        role="assistant",
+                        content=response.text,
+                        tool_calls=response.tool_calls,
+                    )
+                )
+                messages.extend(
+                    await self._run_tool_calls(
+                        harness=harness, task=task, calls=response.tool_calls, emit=emit
+                    )
+                )
+                continue
+            break
 
         parsed = extract_json_object(response.text)
         proof: IBFProof | None = None
@@ -160,5 +237,5 @@ class AgentRuntime:
             raw_text=response.text,
             provider=response.provider,
             model=response.model,
-            usage=response.usage,
+            usage=total_usage,
         )

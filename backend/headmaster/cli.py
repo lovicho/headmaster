@@ -38,6 +38,7 @@ from headmaster.execution_plane.models import (
     load_routing,
 )
 from headmaster.execution_plane.orchestrator import Orchestrator, OrchestratorResult
+from headmaster.execution_plane.tools import build_default_tool_gateway
 from headmaster.schemas.harness_manifest import AgentHarness, OrchestraHarness
 from headmaster.storage.event_store import EventStore
 from headmaster.storage.replay import replay_states
@@ -167,7 +168,9 @@ async def _run(args: argparse.Namespace) -> int:
     try:
         orchestrator = Orchestrator(
             store=store,
-            agent_runtime=AgentRuntime(_make_gateway(provider)),
+            agent_runtime=AgentRuntime(
+                _make_gateway(provider), tool_gateway=build_default_tool_gateway(fabric)
+            ),
             critic=CriticService(),
             registry=registry,
             knowledge_manager=KnowledgeManager(fabric),

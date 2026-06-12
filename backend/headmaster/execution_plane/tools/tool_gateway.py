@@ -7,6 +7,7 @@ import inspect
 from collections.abc import Callable
 
 from headmaster.control_plane.policy_engine import PolicyEngine, PolicyViolationError
+from headmaster.execution_plane.models.gateway import ToolSpec
 from headmaster.schemas.events import Event, EventType
 from headmaster.schemas.harness_manifest import AgentHarness
 
@@ -19,10 +20,30 @@ SOURCE = "headmaster.tool_gateway"
 class ToolGateway:
     def __init__(self, policy: PolicyEngine) -> None:
         self._policy = policy
-        self._tools: dict[str, ToolFn] = {}
+        self._tools: dict[str, tuple[ToolFn, ToolSpec]] = {}
 
-    def register(self, name: str, fn: ToolFn) -> None:
-        self._tools[name] = fn
+    def register(
+        self,
+        name: str,
+        fn: ToolFn,
+        *,
+        description: str = "",
+        input_schema: dict[str, object] | None = None,
+    ) -> None:
+        spec = ToolSpec(
+            name=name,
+            description=description,
+            input_schema=input_schema or {"type": "object"},
+        )
+        self._tools[name] = (fn, spec)
+
+    def specs_for(self, harness: AgentHarness) -> list[ToolSpec]:
+        """Tools offered to the model: registered AND allowlisted for this harness."""
+        return [
+            spec
+            for name, (_, spec) in sorted(self._tools.items())
+            if name in harness.tool_policy.mcp_allowed
+        ]
 
     async def call(
         self,
@@ -49,9 +70,10 @@ class ToolGateway:
             )
             raise PolicyViolationError(decision.reason)
 
-        fn = self._tools.get(tool_name)
-        if fn is None:
+        registered = self._tools.get(tool_name)
+        if registered is None:
             raise KeyError(f"tool '{tool_name}' is allowlisted but not registered")
+        fn, _ = registered
         emit(
             Event(
                 source=SOURCE,
