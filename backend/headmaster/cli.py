@@ -41,6 +41,11 @@ from headmaster.execution_plane.models import (
 )
 from headmaster.execution_plane.orchestrator import Orchestrator, OrchestratorResult
 from headmaster.execution_plane.tools import build_default_tool_gateway
+from headmaster.integrations import (
+    build_integration_files,
+    parse_tools,
+    write_integration_files,
+)
 from headmaster.schemas.harness_manifest import AgentHarness, OrchestraHarness
 from headmaster.storage.event_store import EventStore
 from headmaster.storage.replay import replay_states
@@ -119,6 +124,29 @@ def _build_parser() -> argparse.ArgumentParser:
         help="promote validated patches into harness templates (default: dry-run)",
     )
     improve.add_argument("--golden", default=str(_DEFAULT_GOLDEN), help="golden set path")
+
+    integrations = sub.add_parser(
+        "integrations", help="install Claude Code, Codex, and AGY invocation files"
+    )
+    integrations.add_argument(
+        "--scope",
+        default="project",
+        choices=["project", "user"],
+        help="write files into this repository or the current user's agent config",
+    )
+    integrations.add_argument(
+        "--tools",
+        default="all",
+        help="comma-separated tools to install: claude,codex,agy (default: all)",
+    )
+    integrations.add_argument(
+        "--root",
+        default=".",
+        help="repository root for project-scoped files (default: current directory)",
+    )
+    integrations.add_argument(
+        "--force", action="store_true", help="overwrite existing integration files"
+    )
     return parser
 
 
@@ -318,6 +346,22 @@ def _improve(args: argparse.Namespace) -> int:
         store.close()
 
 
+def _integrations(args: argparse.Namespace) -> int:
+    try:
+        tools = parse_tools(args.tools)
+    except ValueError as exc:
+        print(f"error: {exc}")
+        return 1
+    files = build_integration_files(scope=args.scope, root=Path(args.root), tools=tools)
+    writes = write_integration_files(files, force=args.force)
+    for write in writes:
+        print(f"{write.status}: {write.path}")
+    skipped = [write for write in writes if write.status == "skipped"]
+    if skipped:
+        print("existing files were left untouched; pass --force to overwrite")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "run":
@@ -330,6 +374,8 @@ def main(argv: list[str] | None = None) -> int:
         return _serve(args)
     if args.command == "improve":
         return _improve(args)
+    if args.command == "integrations":
+        return _integrations(args)
     return _replay(args)
 
 

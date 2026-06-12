@@ -100,6 +100,32 @@ uv run headmaster serve --provider fake
 - `--provider openai`: `OPENAI_API_KEY` 필요
 - `--provider fake`: 네트워크/API 키 없는 오프라인 데모
 
+## Claude Code / Codex / AGY에서 해마 호출
+
+이 저장소는 Claude Code, Codex CLI, Antigravity CLI에서 해마를 자연어 또는 slash-style 명령으로 호출할 수 있는 프로젝트 스코프 통합 파일을 포함합니다.
+
+- Claude Code: `CLAUDE.md`, `.claude/skills/haema/SKILL.md`, `.claude/commands/haema.md`
+- Codex: `AGENTS.md`, `.agents/skills/haema/SKILL.md`
+- Antigravity CLI: `AGENTS.md`, `.agent/skills/haema/SKILL.md`
+
+예시:
+
+```text
+해마로 "시장 조사 요약" 실행해줘
+/haema 시장 조사 요약 --provider fake
+/haema 기능 구현 계획 --provider codex
+/haema 랜딩 페이지 초안 --provider agy
+```
+
+사용자 전역 설정으로도 설치할 수 있습니다.
+
+```powershell
+cd backend
+uv run headmaster integrations --scope user --tools all
+```
+
+자세한 내용은 `docs/cli-agent-integrations.md`를 참고하세요.
+
 ## 검증
 
 ```powershell
