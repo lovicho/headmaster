@@ -9,6 +9,7 @@ import httpx
 import pytest
 
 from headmaster.execution_plane.models import (
+    AgyCliAdapter,
     AnthropicAdapter,
     FakeAdapter,
     GeminiCliAdapter,
@@ -21,6 +22,7 @@ from headmaster.execution_plane.models import (
     OpenAIAdapter,
     load_routing,
 )
+from headmaster.execution_plane.models.agy_cli_adapter import strip_terminal_noise
 from headmaster.schemas.common import CostTier
 
 REQUEST = ModelRequest(
@@ -148,6 +150,47 @@ def test_gemini_cli_failure_raises_gateway_error() -> None:
     adapter = GeminiCliAdapter(runner=failing_runner)
     with pytest.raises(ModelGatewayError, match="oauth token expired"):
         asyncio.run(adapter.complete(REQUEST, "test-model"))
+
+
+AGY_RAW_OUTPUT = (
+    "\x1b[1t\x1b[c\x1b[?1004h"
+    "\x1b]0;npm exec chrome-devtools-mcp@latest\x1b\\"
+    "\x1b]0;C:\\WINDOWS\\system32\\cmd.exe \x07"
+    "hello\r\n"
+)
+
+
+def test_agy_strip_terminal_noise() -> None:
+    assert strip_terminal_noise(AGY_RAW_OUTPUT) == "hello"
+
+
+def test_agy_adapter_contract_with_fake_runner() -> None:
+    captured: dict[str, str] = {}
+
+    def runner(args: list[str] | str, timeout_s: float) -> str:
+        if isinstance(args, str):
+            captured["cmdline"] = args
+        else:
+            import subprocess
+            captured["cmdline"] = subprocess.list2cmdline(args)
+        return AGY_RAW_OUTPUT
+
+    adapter = AgyCliAdapter(runner=runner)
+    response = asyncio.run(adapter.complete(REQUEST, "default"))
+    assert response.text == "hello"
+    assert response.provider == "agy"
+    assert "-p" in captured["cmdline"]
+    assert "You are a test agent." in captured["cmdline"]
+    assert "--model" not in captured["cmdline"]  # "default" delegates to the CLI
+
+    response = asyncio.run(adapter.complete(REQUEST, "gemini-3.5-flash"))
+    assert "--model gemini-3.5-flash" in captured["cmdline"]
+
+
+def test_agy_empty_output_raises() -> None:
+    adapter = AgyCliAdapter(runner=lambda cmdline, timeout_s: "\x1b[1t\r\n")
+    with pytest.raises(ModelGatewayError, match="no response text"):
+        asyncio.run(adapter.complete(REQUEST, "default"))
 
 
 def test_gateway_wraps_adapter_errors() -> None:

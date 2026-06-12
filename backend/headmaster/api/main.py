@@ -30,6 +30,7 @@ from headmaster.control_plane.task_compiler import compile_task
 from headmaster.execution_plane.agent_runtime import AgentRuntime
 from headmaster.execution_plane.memory import KnowledgeManager, MemoryFabric
 from headmaster.execution_plane.models import (
+    AgyCliAdapter,
     AnthropicAdapter,
     FakeAdapter,
     GeminiCliAdapter,
@@ -117,6 +118,7 @@ def create_app(
     adapters: dict[str, ModelAdapter] = {
         "anthropic": AnthropicAdapter(),
         "openai": OpenAIAdapter(),
+        "agy": AgyCliAdapter(),
         "gemini": GeminiCliAdapter(),
         "fake": FakeAdapter(),
     }

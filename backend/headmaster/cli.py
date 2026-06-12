@@ -28,6 +28,7 @@ from headmaster.control_plane.topology_selector import select_topology
 from headmaster.execution_plane.agent_runtime import AgentRuntime
 from headmaster.execution_plane.memory import KnowledgeManager, MemoryFabric
 from headmaster.execution_plane.models import (
+    AgyCliAdapter,
     AnthropicAdapter,
     FakeAdapter,
     GeminiCliAdapter,
@@ -56,8 +57,9 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--provider",
         default=None,
-        choices=["anthropic", "openai", "gemini", "fake"],
-        help="override the model provider (gemini = OAuth via local CLI, fake = offline demo)",
+        choices=["anthropic", "openai", "agy", "gemini", "fake"],
+        help="override the model provider (agy/gemini = Google OAuth via local CLI,"
+        " fake = offline demo)",
     )
     run.add_argument(
         "--approval",
@@ -88,8 +90,9 @@ def _build_parser() -> argparse.ArgumentParser:
     serve.add_argument(
         "--provider",
         default=None,
-        choices=["anthropic", "openai", "gemini", "fake"],
-        help="override the model provider (gemini = OAuth via local CLI, fake = offline demo)",
+        choices=["anthropic", "openai", "agy", "gemini", "fake"],
+        help="override the model provider (agy/gemini = Google OAuth via local CLI,"
+        " fake = offline demo)",
     )
     serve.add_argument("--store", default="./data/events.sqlite3", help="event store path")
     serve.add_argument(
@@ -121,6 +124,7 @@ def _make_gateway(provider_override: str | None) -> ModelGateway:
     adapters: dict[str, ModelAdapter] = {
         "anthropic": AnthropicAdapter(),
         "openai": OpenAIAdapter(),
+        "agy": AgyCliAdapter(),
         "gemini": GeminiCliAdapter(),
         "fake": FakeAdapter(),
     }

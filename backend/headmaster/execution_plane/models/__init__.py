@@ -1,5 +1,6 @@
 """Model gateway and provider adapters — the LLM-agnostic boundary."""
 
+from headmaster.execution_plane.models.agy_cli_adapter import AgyCliAdapter
 from headmaster.execution_plane.models.anthropic_adapter import AnthropicAdapter
 from headmaster.execution_plane.models.fake_adapter import FakeAdapter
 from headmaster.execution_plane.models.gateway import (
@@ -18,6 +19,7 @@ from headmaster.execution_plane.models.gemini_cli_adapter import GeminiCliAdapte
 from headmaster.execution_plane.models.openai_adapter import OpenAIAdapter
 
 __all__ = [
+    "AgyCliAdapter",
     "AnthropicAdapter",
     "FakeAdapter",
     "GeminiCliAdapter",

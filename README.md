@@ -58,7 +58,10 @@ cd ../backend && uv run headmaster serve --provider fake
 # http://127.0.0.1:8400 — 작업 제출, 승인 큐(HITL), 지표, 이벤트 트레이스
 ```
 
-실제 LLM 사용: `ANTHROPIC_API_KEY`(또는 `OPENAI_API_KEY`) 설정 후 `--provider anthropic|openai`.
+실제 LLM 사용:
+- **`--provider agy`** — Google **Antigravity CLI** OAuth (API 키 불필요, Windows: ConPTY 호스팅). agy CLI 설치 + Google 로그인만 필요
+- `--provider gemini` — gemini CLI OAuth (oauth-personal 로그인 필요)
+- `--provider anthropic|openai` — `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` 환경변수
 
 ## 검증
 
