@@ -73,6 +73,8 @@ class CritiqueSummary(BaseModel):
     target_agent: str
     status: str
     zero_shot_detected: bool
+    rejection_codes: list[str] = Field(default_factory=list)
+    rejection_categories: list[str] = Field(default_factory=list)
 
 
 class TaskStatus(BaseModel):
@@ -216,6 +218,18 @@ def create_app(
                     target_agent=critique.target_agent,
                     status=critique.status.value,
                     zero_shot_detected=critique.zero_shot_detected,
+                    rejection_codes=[
+                        finding.code.value
+                        for finding in critique.findings
+                        if finding.code is not None
+                    ],
+                    rejection_categories=sorted(
+                        {
+                            finding.category.value
+                            for finding in critique.findings
+                            if finding.category is not None
+                        }
+                    ),
                 )
                 for critique in projection.critiques
             ],

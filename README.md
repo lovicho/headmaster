@@ -89,7 +89,8 @@ Headmaster는 이 문제를 “모델 호출”이 아니라 “작업 운영”
 | Phase 2 | 구현됨 | Memory Fabric, KnowledgeManager, 지식 순환, 격리/승격 |
 | Phase 3 | 구현됨 | HITL 승인, 예산 관리, fan-out 오케스트라, golden eval, audit |
 | Phase 4 | 구현됨 | FastAPI 제어 API, 재시작 복구, React 대시보드, self-improvement, OAuth CLI provider |
-| 다음 후보 | 예정 | rejection taxonomy, MCP transport, A2A, PostgreSQL/Temporal 검토 |
+| Phase 5a | 구현됨 | Critic rejection taxonomy, dashboard rejection code badges, code-aware self-improvement |
+| 다음 후보 | 예정 | MCP transport, A2A, PostgreSQL/Temporal 검토 |
 
 현재 기본 저장소는 로컬 SQLite 기반입니다. 장기 운영이나 다중 사용자 배포를 위해서는 PostgreSQL, durable workflow runtime, 권한 모델, 장기 artifact storage를 추가하는 것이 다음 단계입니다.
 
@@ -786,6 +787,20 @@ Critic은 다음 문제를 잡습니다.
 - output contract 위반
 - 검증 실패 후 재계획이 필요한 결과
 
+Critic 반려 사유는 `HM-*` 코드로 구조화됩니다.
+
+| Code | Category | Issue type | 의미 |
+| --- | --- | --- | --- |
+| `HM-ZS-001` | `provenance` | `zero_shot_invention` | I-B-F Proof 없이 blank-canvas 산출물이 생성되었습니다. |
+| `HM-EV-001` | `provenance` | `missing_evidence` | imitation이 필요한데 내부 자산 ID가 선언되지 않았습니다. |
+| `HM-EV-002` | `evidence_integrity` | `missing_evidence` | 제공되지 않은 내부 자산 ID를 참조했습니다. |
+| `HM-EV-003` | `provenance` | `missing_evidence` | benchmarking이 필요한데 benchmark URI가 선언되지 않았습니다. |
+| `HM-LG-001` | `reasoning_integrity` | `logic_gap` | fusion methodology가 비어 있거나 설명되지 않았습니다. |
+| `HM-FM-001` | `output_contract` | `format_error` | 산출물이 선언된 output contract와 맞지 않습니다. |
+| `HM-PL-001` | `policy` | `policy_violation` | 정책이 도구 사용이나 외부 쓰기 작업을 차단했습니다. |
+
+API와 대시보드는 Critic 요약에 `rejection_codes`와 `rejection_categories`를 함께 노출합니다. self-improvement 루프도 가능한 경우 `issue_type`보다 구체적인 `HM-*` 코드를 기준으로 반복 실패를 묶습니다.
+
 기본 재시도 횟수는 `--max-revisions 2`입니다. 재시도 후에도 통과하지 못하면 작업은 실패 상태로 닫힙니다.
 
 ## 메모리와 지식 순환
@@ -999,7 +1014,6 @@ npm run smoke
 
 가까운 후속 작업:
 
-- rejection taxonomy를 정교화해 Critic 반려 사유를 더 구조화합니다.
 - MCP transport를 추가해 외부 도구와 knowledge source를 표준 연결합니다.
 - A2A 또는 유사한 agent-to-agent protocol 검토를 진행합니다.
 - PostgreSQL 기반 event store와 memory store를 추가합니다.

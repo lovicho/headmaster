@@ -42,9 +42,22 @@ export function TaskDetail({ task }: Props) {
       <h3>Critic 판정</h3>
       <ul className="critique-list">
         {task.critiques.map((critique, index) => (
-          <li key={`${critique.target_agent}-${index}`} className={critique.status === "APPROVED" ? "ok" : "fail"}>
+          <li
+            key={`${critique.target_agent}-${index}`}
+            className={critique.status === "APPROVED" ? "ok" : "fail"}
+          >
             {critique.target_agent}: {critique.status}
             {critique.zero_shot_detected && <span className="badge warn">zero-shot</span>}
+            {critique.rejection_codes.map((code) => (
+              <span key={code} className="badge fail">
+                {code}
+              </span>
+            ))}
+            {critique.rejection_categories.map((category) => (
+              <span key={category} className="badge muted-badge">
+                {category}
+              </span>
+            ))}
           </li>
         ))}
       </ul>

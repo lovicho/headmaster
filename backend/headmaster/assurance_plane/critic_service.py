@@ -15,6 +15,7 @@ from headmaster.schemas.critique_report import (
 )
 from headmaster.schemas.evidence_bundle import EvidenceBundle
 from headmaster.schemas.harness_manifest import AgentHarness, IBFRequirements
+from headmaster.schemas.rejection_taxonomy import RejectionCode, rejection_definition
 
 ANTI_REINVENTION_ORDER = (
     "Cease invention. Imitate internal assets, benchmark external references, and fuse."
@@ -26,6 +27,25 @@ def requirements_for(harness: AgentHarness) -> IBFRequirements:
     return IBFRequirements(
         must_reference_internal_assets=harness.ibf_protocol.imitate is not None,
         must_reference_external_benchmarks=harness.ibf_protocol.benchmark is not None,
+    )
+
+
+def taxonomy_finding(
+    code: RejectionCode, *, description: str | None = None, proposed_fix: str | None = None
+) -> Finding:
+    """Create a Finding enriched with the structured rejection taxonomy."""
+
+    definition = rejection_definition(code)
+    return Finding(
+        code=definition.code,
+        category=definition.category,
+        issue_type=definition.issue_type,
+        severity=definition.severity,
+        description=description or definition.title,
+        proposed_fix=proposed_fix or definition.default_fix,
+        operator_summary=definition.operator_summary,
+        retryable=definition.retryable,
+        requires_human_approval=definition.requires_human_approval,
     )
 
 
@@ -52,9 +72,8 @@ class CriticService:
                     fusion_coherence="Fail - no I-B-F proof attached",
                 ),
                 findings=[
-                    Finding(
-                        issue_type="zero_shot_invention",
-                        severity="critical",
+                    taxonomy_finding(
+                        RejectionCode.BLANK_CANVAS_NO_PROOF,
                         description=(
                             "Deliverable was created from a blank canvas without provenance."
                         ),
@@ -86,9 +105,8 @@ class CriticService:
         revisions: list[str] = []
         if unknown_assets:
             findings.append(
-                Finding(
-                    issue_type="missing_evidence",
-                    severity="critical",
+                taxonomy_finding(
+                    RejectionCode.UNKNOWN_IMITATION_ASSET,
                     description=(
                         "Referenced imitation assets are not in the supplied"
                         f" [Mandatory_Imitation_Base] set: {', '.join(unknown_assets)}"
@@ -99,9 +117,8 @@ class CriticService:
             revisions.append("Reference only supplied [Mandatory_Imitation_Base] asset ids.")
         if not imitation_present_ok:
             findings.append(
-                Finding(
-                    issue_type="missing_evidence",
-                    severity="critical",
+                taxonomy_finding(
+                    RejectionCode.IMITATION_SOURCE_MISSING,
                     description="No internal asset referenced although imitation is required.",
                     proposed_fix="Declare the [Mandatory_Imitation_Base] asset ids used.",
                 )
@@ -109,9 +126,8 @@ class CriticService:
             revisions.append("Declare imitated internal asset ids.")
         if not benchmark_ok:
             findings.append(
-                Finding(
-                    issue_type="missing_evidence",
-                    severity="critical",
+                taxonomy_finding(
+                    RejectionCode.BENCHMARK_SOURCE_MISSING,
                     description=(
                         "No external benchmark referenced although benchmarking is required."
                     ),
@@ -121,9 +137,8 @@ class CriticService:
             revisions.append("Declare benchmarked reference URIs.")
         if not fusion_ok:
             findings.append(
-                Finding(
-                    issue_type="logic_gap",
-                    severity="moderate",
+                taxonomy_finding(
+                    RejectionCode.FUSION_METHOD_MISSING,
                     description="Fusion methodology is missing or empty.",
                     proposed_fix="Explain how client-specific facts were fused into the skeleton.",
                 )

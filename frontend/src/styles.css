@@ -93,6 +93,15 @@ header .en {
   background: var(--warn);
 }
 
+.badge.fail {
+  background: var(--fail);
+}
+
+.badge.muted-badge {
+  background: var(--border);
+  color: var(--muted);
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));

@@ -325,7 +325,12 @@ def _improve(args: argparse.Namespace) -> int:
         report = analyze_failures(store, min_count=args.min_count)
         print(f"total_rejections={report.total_rejections}")
         for pattern in report.patterns:
-            print(f"pattern: {pattern.harness_id}/{pattern.issue_type} x{pattern.count}")
+            code = f" code={pattern.rejection_code}" if pattern.rejection_code else ""
+            category = f" category={pattern.category}" if pattern.category else ""
+            print(
+                f"pattern: {pattern.harness_id}/{pattern.issue_type}"
+                f"{code}{category} x{pattern.count}"
+            )
         patches = propose_patches(report, registry)
         if not patches:
             print("no patches proposed")

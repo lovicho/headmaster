@@ -57,6 +57,8 @@ def test_analyze_failures_finds_recurring_pattern() -> None:
     assert report.total_rejections == 3
     keys = {(p.harness_id, p.issue_type) for p in report.patterns}
     assert ("content", "zero_shot_invention") in keys
+    codes = {(p.harness_id, p.rejection_code) for p in report.patterns}
+    assert ("content", "HM-ZS-001") in codes
 
 
 def test_propose_and_apply_patch() -> None:
@@ -66,6 +68,7 @@ def test_propose_and_apply_patch() -> None:
     assert patches, "recurring pattern must yield a patch proposal"
     patch = next(p for p in patches if p.harness_id == "content")
     assert "REINFORCED" in patch.directive
+    assert "HM-ZS-001" in patch.rationale
 
     original = registry["content"]
     patched = apply_patch(original, patch)

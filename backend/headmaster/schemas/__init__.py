@@ -40,6 +40,13 @@ from headmaster.schemas.harness_manifest import (
     harness_adapter,
 )
 from headmaster.schemas.memory_record import DecayPolicy, MemoryRecord
+from headmaster.schemas.rejection_taxonomy import (
+    REJECTION_TAXONOMY,
+    RejectionCategory,
+    RejectionCode,
+    RejectionDefinition,
+    rejection_definition,
+)
 from headmaster.schemas.states import (
     ALLOWED_TRANSITIONS,
     TERMINAL_STATES,
@@ -86,6 +93,10 @@ __all__ = [
     "PhaseGate",
     "RiskLevel",
     "RiskProfile",
+    "REJECTION_TAXONOMY",
+    "RejectionCategory",
+    "RejectionCode",
+    "RejectionDefinition",
     "SourceRef",
     "TaskInput",
     "TaskSpec",
@@ -96,5 +107,6 @@ __all__ = [
     "content_sha256",
     "harness_adapter",
     "new_id",
+    "rejection_definition",
     "validate_transition",
 ]

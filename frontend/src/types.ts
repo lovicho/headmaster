@@ -4,6 +4,8 @@ export interface CritiqueSummary {
   target_agent: string;
   status: "APPROVED" | "REJECTED";
   zero_shot_detected: boolean;
+  rejection_codes: string[];
+  rejection_categories: string[];
 }
 
 export interface TaskStatus {

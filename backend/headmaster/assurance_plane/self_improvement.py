@@ -20,6 +20,26 @@ from headmaster.schemas.harness_manifest import AgentHarness
 from headmaster.storage.event_store import EventStore
 
 _DIRECTIVE_BY_ISSUE: dict[str, str] = {
+    "HM-ZS-001": (
+        "REINFORCED: every deliverable MUST attach I-B-F proof before review;"
+        " blank-canvas outputs without provenance are rejected immediately."
+    ),
+    "HM-EV-001": (
+        "REINFORCED: when imitation is required, declare the exact internal"
+        " [Mandatory_Imitation_Base] asset ids used."
+    ),
+    "HM-EV-002": (
+        "REINFORCED: never invent internal asset ids; reference only assets supplied"
+        " in [Mandatory_Imitation_Base]."
+    ),
+    "HM-EV-003": (
+        "REINFORCED: when benchmarking is required, declare the exact external"
+        " benchmark URI list used."
+    ),
+    "HM-LG-001": (
+        "REINFORCED: always explain the fusion methodology — how client-specific facts"
+        " were merged into the imitated/benchmarked skeleton."
+    ),
     "zero_shot_invention": (
         "REINFORCED: every deliverable MUST cite its imitation/benchmark sources in"
         " ibf_proof; outputs without provenance are rejected without review."
@@ -45,6 +65,8 @@ _DIRECTIVE_BY_ISSUE: dict[str, str] = {
 class FailurePattern(BaseModel):
     harness_id: str
     issue_type: str
+    rejection_code: str | None = None
+    category: str | None = None
     count: int
     critique_ids: list[str] = Field(default_factory=list)
 
@@ -65,7 +87,7 @@ class HarnessPatch(BaseModel):
 
 def analyze_failures(store: EventStore, *, min_count: int = 2) -> FailureReport:
     """Diagnose: group rejected critiques by (agent, issue type)."""
-    buckets: dict[tuple[str, str], list[str]] = {}
+    buckets: dict[tuple[str, str, str | None, str | None], list[str]] = {}
     total = 0
     for event in store.all_events():
         if event.type is not EventType.CRITIQUE_ISSUED:
@@ -75,21 +97,35 @@ def analyze_failures(store: EventStore, *, min_count: int = 2) -> FailureReport:
         total += 1
         agent = str(event.data.get("target_agent", ""))
         critique_id = str(event.data.get("critique_id", ""))
-        issues: set[str] = set()
-        if event.data.get("zero_shot_detected"):
-            issues.add("zero_shot_invention")
+        issues: set[tuple[str, str | None, str | None]] = set()
         findings = event.data.get("findings", [])
         if isinstance(findings, list):
             for finding in findings:
-                if isinstance(finding, dict) and "issue_type" in finding:
-                    issues.add(str(finding["issue_type"]))
-        for issue in issues:
-            buckets.setdefault((agent, issue), []).append(critique_id)
+                if not isinstance(finding, dict) or "issue_type" not in finding:
+                    continue
+                code = finding.get("code")
+                category = finding.get("category")
+                issues.add(
+                    (
+                        str(finding["issue_type"]),
+                        str(code) if code is not None else None,
+                        str(category) if category is not None else None,
+                    )
+                )
+        if event.data.get("zero_shot_detected") and not issues:
+            issues.add(("zero_shot_invention", None, None))
+        for issue, code, category in issues:
+            buckets.setdefault((agent, issue, code, category), []).append(critique_id)
     patterns = [
         FailurePattern(
-            harness_id=agent, issue_type=issue, count=len(ids), critique_ids=ids
+            harness_id=agent,
+            issue_type=issue,
+            rejection_code=code,
+            category=category,
+            count=len(ids),
+            critique_ids=ids,
         )
-        for (agent, issue), ids in sorted(buckets.items())
+        for (agent, issue, code, category), ids in sorted(buckets.items())
         if len(ids) >= min_count
     ]
     patterns.sort(key=lambda pattern: pattern.count, reverse=True)
@@ -103,7 +139,8 @@ def propose_patches(
     patches: list[HarnessPatch] = []
     for pattern in report.patterns:
         harness = registry.get(pattern.harness_id)
-        directive = _DIRECTIVE_BY_ISSUE.get(pattern.issue_type)
+        directive_key = pattern.rejection_code or pattern.issue_type
+        directive = _DIRECTIVE_BY_ISSUE.get(directive_key)
         if harness is None or directive is None:
             continue
         if directive in harness.inherited_directives:
@@ -113,7 +150,7 @@ def propose_patches(
                 harness_id=pattern.harness_id,
                 directive=directive,
                 rationale=(
-                    f"{pattern.issue_type} rejected {pattern.count}x for"
+                    f"{directive_key} rejected {pattern.count}x for"
                     f" '{pattern.harness_id}'"
                 ),
                 evidence_count=pattern.count,

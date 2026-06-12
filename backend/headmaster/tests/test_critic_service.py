@@ -12,6 +12,7 @@ from headmaster.schemas import (
     EvidenceBundle,
     IBFProof,
     IBFRequirements,
+    RejectionCode,
 )
 
 CRITIC = CriticService()
@@ -31,6 +32,8 @@ def test_missing_proof_rejected_as_zero_shot() -> None:
     )
     assert report.status is CritiqueStatus.REJECTED
     assert report.zero_shot_detected is True
+    assert report.findings[0].code is RejectionCode.BLANK_CANVAS_NO_PROOF
+    assert report.findings[0].category == "provenance"
     assert report.requires_replan is True
     assert ANTI_REINVENTION_ORDER in report.mandatory_revisions
 
@@ -47,6 +50,9 @@ def test_missing_imitation_rejected_when_required() -> None:
     assert report.status is CritiqueStatus.REJECTED
     assert report.verification_details.imitation_check.startswith("Fail")
     assert report.zero_shot_detected is False
+    assert {finding.code for finding in report.findings} == {
+        RejectionCode.IMITATION_SOURCE_MISSING
+    }
 
 
 def test_valid_proof_approved() -> None:
@@ -80,6 +86,8 @@ def test_unknown_asset_rejected_even_when_imitation_optional() -> None:
     )
     assert report.status is CritiqueStatus.REJECTED
     assert report.verification_details.imitation_check.startswith("Fail")
+    assert report.findings[0].code is RejectionCode.UNKNOWN_IMITATION_ASSET
+    assert report.findings[0].category == "evidence_integrity"
 
 
 def test_requirements_derived_from_harness_protocol() -> None:

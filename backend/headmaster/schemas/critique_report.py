@@ -11,6 +11,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from headmaster.schemas.common import new_id
+from headmaster.schemas.rejection_taxonomy import RejectionCategory, RejectionCode
 
 
 class CritiqueStatus(StrEnum):
@@ -25,6 +26,8 @@ class VerificationDetails(BaseModel):
 
 
 class Finding(BaseModel):
+    code: RejectionCode | None = None
+    category: RejectionCategory | None = None
     issue_type: Literal[
         "missing_evidence",
         "logic_gap",
@@ -35,6 +38,9 @@ class Finding(BaseModel):
     severity: Literal["minor", "moderate", "critical"]
     description: str
     proposed_fix: str | None = None
+    operator_summary: str | None = None
+    retryable: bool = True
+    requires_human_approval: bool = False
 
 
 class CritiqueReport(BaseModel):
