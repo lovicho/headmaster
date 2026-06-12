@@ -53,7 +53,7 @@ export function TaskForm({ onCreated }: Props) {
         <textarea
           value={text}
           onChange={(event) => setText(event.target.value)}
-          placeholder="작업 내용을 입력하세요…"
+          placeholder="작업 내용을 입력하세요"
           rows={3}
         />
         <div className="form-row">
@@ -92,7 +92,7 @@ export function TaskForm({ onCreated }: Props) {
           인간 승인 필요 (HITL)
         </label>
         <button type="submit" disabled={submitting || !text.trim()}>
-          {submitting ? "제출 중…" : "작업 제출"}
+          {submitting ? "제출 중..." : "작업 제출"}
         </button>
         {error && <p className="error">{error}</p>}
       </form>

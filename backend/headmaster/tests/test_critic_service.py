@@ -63,6 +63,25 @@ def test_valid_proof_approved() -> None:
     assert report.findings == []
 
 
+def test_unknown_asset_rejected_even_when_imitation_optional() -> None:
+    proof = IBFProof(
+        imitated_assets=["made_up_internal_asset"],
+        benchmarked_references=["https://example.com"],
+        fusion_method="Mapped client facts onto the benchmark pattern.",
+    )
+    report = CRITIC.review(
+        target_agent="content",
+        bundle=_bundle(proof),
+        requirements=IBFRequirements(
+            must_reference_internal_assets=False,
+            must_reference_external_benchmarks=True,
+        ),
+        supplied_asset_ids=set(),
+    )
+    assert report.status is CritiqueStatus.REJECTED
+    assert report.verification_details.imitation_check.startswith("Fail")
+
+
 def test_requirements_derived_from_harness_protocol() -> None:
     registry = load_all()
     researcher = registry["researcher"]

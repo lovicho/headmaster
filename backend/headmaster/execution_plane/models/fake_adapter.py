@@ -29,7 +29,7 @@ def _default_response(request: ModelRequest) -> str:
     return json.dumps(
         {
             "ibf_proof": {
-                "imitated_assets": supplied_ids[:3] or ["seed_asset_demo_v1"],
+                "imitated_assets": supplied_ids[:3],
                 "benchmarked_references": ["https://example.com/reference"],
                 "fusion_method": "Fused the imitated skeleton with task-specific facts.",
             },

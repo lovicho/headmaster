@@ -42,7 +42,7 @@ export function TaskDetail({ task }: Props) {
       <h3>Critic 판정</h3>
       <ul className="critique-list">
         {task.critiques.map((critique, index) => (
-          <li key={index} className={critique.status === "APPROVED" ? "ok" : "fail"}>
+          <li key={`${critique.target_agent}-${index}`} className={critique.status === "APPROVED" ? "ok" : "fail"}>
             {critique.target_agent}: {critique.status}
             {critique.zero_shot_detected && <span className="badge warn">zero-shot</span>}
           </li>
@@ -52,7 +52,7 @@ export function TaskDetail({ task }: Props) {
       {artifact && (
         <>
           <h3>
-            산출물 <code className="muted">{artifact.content_hash.slice(0, 16)}…</code>
+            산출물 <code className="muted">{artifact.content_hash.slice(0, 16)}</code>
           </h3>
           <pre className="artifact">{artifact.content}</pre>
         </>
@@ -66,7 +66,7 @@ export function TaskDetail({ task }: Props) {
             {event.type === "state.changed" && (
               <span className="muted">
                 {" "}
-                {String(event.data["from"])} → {String(event.data["to"])}
+                {String(event.data["from"])} -&gt; {String(event.data["to"])}
               </span>
             )}
           </li>

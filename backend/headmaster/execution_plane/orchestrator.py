@@ -188,7 +188,7 @@ class Orchestrator:
             bundle=draft.bundle,
             requirements=requirements,
             task_id=spec.task_id,
-            supplied_asset_ids=supplied_ids if supplied_ids else None,
+            supplied_asset_ids=supplied_ids,
         )
         self._emit(spec.task_id, EventType.CRITIQUE_ISSUED, critique.model_dump(mode="json"))
         return draft, critique
@@ -261,6 +261,11 @@ class Orchestrator:
             {
                 "artifact_id": artifact.artifact_id,
                 "content_hash": artifact.content_hash,
+                "format": artifact.format,
+                "produced_by": artifact.produced_by,
+                "evidence_bundle_id": artifact.evidence_bundle_id,
+                "critique_id": artifact.critique_id,
+                "content": artifact.content,
                 "path": artifact_path,
             },
         )

@@ -18,7 +18,7 @@ from headmaster.storage.replay import replay_final_state, replay_states
 VALID_RESPONSE = json.dumps(
     {
         "ibf_proof": {
-            "imitated_assets": ["asset_demo"],
+            "imitated_assets": [],
             "benchmarked_references": ["https://example.com/ref"],
             "fusion_method": "Fused imitation base with task facts.",
         },

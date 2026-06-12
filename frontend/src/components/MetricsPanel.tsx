@@ -9,7 +9,10 @@ export function MetricsPanel({ metrics }: Props) {
     ? [
         { label: "작업", value: `${metrics.completed}/${metrics.total_tasks} 완료` },
         { label: "성공률", value: `${(metrics.task_success_rate * 100).toFixed(0)}%` },
-        { label: "증거 커버리지", value: `${(metrics.evidence_coverage * 100).toFixed(0)}%` },
+        {
+          label: "증거 커버리지",
+          value: `${(metrics.evidence_coverage * 100).toFixed(0)}%`,
+        },
         {
           label: "Critic",
           value: `승인 ${metrics.critiques_approved} / 반려 ${metrics.critiques_rejected}`,
@@ -24,7 +27,7 @@ export function MetricsPanel({ metrics }: Props) {
     <section className="panel metrics">
       <h2>운영 지표</h2>
       {metrics === null ? (
-        <p className="muted">불러오는 중…</p>
+        <p className="muted">불러오는 중...</p>
       ) : (
         <div className="metric-grid">
           {cards.map((card) => (

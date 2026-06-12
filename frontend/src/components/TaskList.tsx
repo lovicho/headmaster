@@ -36,16 +36,16 @@ export function TaskList({ tasks, selectedId, onSelect }: Props) {
                 onClick={() => onSelect(task.task_id)}
               >
                 <td>
-                  <code>{task.task_id.slice(0, 12)}…</code>
+                  <code>{task.task_id.slice(0, 12)}...</code>
                 </td>
                 <td>
                   <span className={`state ${STATE_CLASS[task.state] ?? "state-run"}`}>
                     {task.state}
-                    {task.running ? " ⏳" : ""}
+                    {task.running ? " 실행 중" : ""}
                   </span>
                 </td>
                 <td>
-                  {task.critiques.filter((c) => c.status === "APPROVED").length}/
+                  {task.critiques.filter((critique) => critique.status === "APPROVED").length}/
                   {task.critiques.length}
                 </td>
                 <td>{task.reused_asset_ids.length}</td>

@@ -31,7 +31,7 @@ export function App() {
           해마 <span className="en">Headmaster</span> Control Dashboard
         </h1>
         <p className="muted">
-          No Zero-Shot Invention · I-B-F Loop · Evidence-Based Orchestration
+          No Zero-Shot Invention / I-B-F Loop / Evidence-Based Orchestration
         </p>
       </header>
 

@@ -1,10 +1,7 @@
-"""Phase 4a gates: control API end-to-end over ASGI (offline, fake provider).
-
-- task submission -> background run -> status/events/artifact
-- HTTP approval queue: high-risk task blocks until approved/denied via API
-"""
+"""Phase 4a gates: control API end-to-end over ASGI (offline, fake provider)."""
 
 import asyncio
+from pathlib import Path
 
 import httpx
 import pytest
@@ -20,8 +17,18 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-def _app() -> FastAPI:
-    return create_app(store=EventStore(), fabric=MemoryFabric(), provider="fake")
+def _app(
+    *,
+    store: EventStore | None = None,
+    fabric: MemoryFabric | None = None,
+    artifact_dir: Path | None = None,
+) -> FastAPI:
+    return create_app(
+        store=store or EventStore(),
+        fabric=fabric or MemoryFabric(),
+        provider="fake",
+        artifact_dir=artifact_dir,
+    )
 
 
 def _client(app: FastAPI) -> httpx.AsyncClient:
@@ -61,7 +68,7 @@ async def _wait_for_approval(
 @pytest.mark.anyio
 async def test_task_lifecycle_over_api() -> None:
     async with _client(_app()) as client:
-        created = await client.post("/v1/tasks", json={"text": "API 데모 작업"})
+        created = await client.post("/v1/tasks", json={"text": "API demo task"})
         assert created.status_code == 200
         task_id = created.json()["task_id"]
 
@@ -71,7 +78,7 @@ async def test_task_lifecycle_over_api() -> None:
 
         events = await client.get(f"/v1/tasks/{task_id}/events")
         assert events.status_code == 200
-        assert any(e["type"] == "task.completed" for e in events.json())
+        assert any(event["type"] == "task.completed" for event in events.json())
 
         artifact = await client.get(f"/v1/tasks/{task_id}/artifact")
         assert artifact.status_code == 200
@@ -88,7 +95,7 @@ async def test_task_lifecycle_over_api() -> None:
 async def test_http_approval_grant_flow() -> None:
     async with _client(_app()) as client:
         created = await client.post(
-            "/v1/tasks", json={"text": "고위험 작업", "needs_human_approval": True}
+            "/v1/tasks", json={"text": "high risk task", "needs_human_approval": True}
         )
         task_id = created.json()["task_id"]
 
@@ -110,7 +117,7 @@ async def test_http_approval_grant_flow() -> None:
 async def test_http_approval_deny_blocks_publication() -> None:
     async with _client(_app()) as client:
         created = await client.post(
-            "/v1/tasks", json={"text": "고위험 작업", "needs_human_approval": True}
+            "/v1/tasks", json={"text": "high risk task", "needs_human_approval": True}
         )
         task_id = created.json()["task_id"]
 
@@ -144,3 +151,101 @@ async def test_eval_endpoint_runs_golden_suite() -> None:
         body = report.json()
         assert body["total"] == 5
         assert body["failures"] == []
+
+
+@pytest.mark.anyio
+async def test_completed_task_status_and_artifact_survive_restart(
+    tmp_path: Path,
+) -> None:
+    store_path = tmp_path / "events.sqlite3"
+    memory_path = tmp_path / "memory.sqlite3"
+    artifact_dir = tmp_path / "artifacts"
+
+    async with _client(
+        _app(
+            store=EventStore(store_path),
+            fabric=MemoryFabric(memory_path),
+            artifact_dir=artifact_dir,
+        )
+    ) as client:
+        created = await client.post("/v1/tasks", json={"text": "restartable task"})
+        task_id = created.json()["task_id"]
+        status = await _wait_for_state(client, task_id, "completed")
+        assert status["artifact_id"]
+
+    async with _client(
+        _app(
+            store=EventStore(store_path),
+            fabric=MemoryFabric(memory_path),
+            artifact_dir=artifact_dir,
+        )
+    ) as client:
+        status_response = await client.get(f"/v1/tasks/{task_id}")
+        assert status_response.status_code == 200
+        body = status_response.json()
+        assert body["state"] == "completed"
+        assert body["artifact_id"]
+        assert body["critiques"]
+
+        artifact = await client.get(f"/v1/tasks/{task_id}/artifact")
+        assert artifact.status_code == 200
+        assert artifact.json()["content"]
+
+
+@pytest.mark.anyio
+async def test_publish_approval_can_be_granted_after_restart(tmp_path: Path) -> None:
+    store_path = tmp_path / "events.sqlite3"
+    memory_path = tmp_path / "memory.sqlite3"
+    artifact_dir = tmp_path / "artifacts"
+
+    async with _client(
+        _app(
+            store=EventStore(store_path),
+            fabric=MemoryFabric(memory_path),
+            artifact_dir=artifact_dir,
+        )
+    ) as client:
+        created = await client.post(
+            "/v1/tasks",
+            json={"text": "restartable high risk task", "needs_human_approval": True},
+        )
+        task_id = created.json()["task_id"]
+        ticket = await _wait_for_approval(client)
+
+    async with _client(
+        _app(
+            store=EventStore(store_path),
+            fabric=MemoryFabric(memory_path),
+            artifact_dir=artifact_dir,
+        )
+    ) as client:
+        approvals = await client.get("/v1/approvals")
+        assert ticket["ticket_id"] in [item["ticket_id"] for item in approvals.json()]
+
+        resolved = await client.post(
+            f"/v1/approvals/{ticket['ticket_id']}",
+            json={"granted": True, "approver": "boss"},
+        )
+        assert resolved.status_code == 200
+
+        status = await client.get(f"/v1/tasks/{task_id}")
+        assert status.json()["state"] == "completed"
+        artifact = await client.get(f"/v1/tasks/{task_id}/artifact")
+        assert artifact.status_code == 200
+        assert artifact.json()["content"]
+
+
+@pytest.mark.anyio
+async def test_background_exception_records_failed_event(tmp_path: Path) -> None:
+    blocked_artifact_dir = tmp_path / "not_a_directory"
+    blocked_artifact_dir.write_text("blocks mkdir", encoding="utf-8")
+    async with _client(_app(artifact_dir=blocked_artifact_dir)) as client:
+        created = await client.post("/v1/tasks", json={"text": "publish failure"})
+        task_id = created.json()["task_id"]
+
+        status = await _wait_for_state(client, task_id, "failed")
+        assert status["running"] is False
+        assert status["failure_reason"] == "background_task_exception"
+
+        events = await client.get(f"/v1/tasks/{task_id}/events")
+        assert any(event["type"] == "task.failed" for event in events.json())

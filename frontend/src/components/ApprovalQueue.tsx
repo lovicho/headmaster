@@ -11,7 +11,7 @@ interface Props {
 const KIND_LABEL: Record<ApprovalTicket["kind"], string> = {
   publish: "발행 승인",
   budget_overrun: "예산 초과",
-  phase_gate: "페이즈 게이트",
+  phase_gate: "단계 게이트",
 };
 
 export function ApprovalQueue({ tickets, onResolved }: Props) {
@@ -30,7 +30,7 @@ export function ApprovalQueue({ tickets, onResolved }: Props) {
   return (
     <section className="panel">
       <h2>
-        승인 대기 큐 {tickets.length > 0 && <span className="badge">{tickets.length}</span>}
+        승인 대기 {tickets.length > 0 && <span className="badge">{tickets.length}</span>}
       </h2>
       {tickets.length === 0 ? (
         <p className="muted">대기 중인 승인이 없습니다.</p>
@@ -56,7 +56,7 @@ export function ApprovalQueue({ tickets, onResolved }: Props) {
                   disabled={busy === ticket.ticket_id}
                   onClick={() => void handleResolve(ticket.ticket_id, false)}
                 >
-                  거부
+                  거절
                 </button>
               </div>
             </li>
