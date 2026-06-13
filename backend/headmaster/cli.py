@@ -39,6 +39,8 @@ from headmaster.execution_plane.models import (
     OpenAIAdapter,
     load_routing,
 )
+from headmaster.schemas.common import CostTier
+from headmaster.schemas.environment import EnvironmentContext
 from headmaster.execution_plane.orchestrator import Orchestrator, OrchestratorResult
 from headmaster.execution_plane.tools import build_default_tool_gateway
 from headmaster.integrations import (
@@ -197,11 +199,17 @@ async def _run(args: argparse.Namespace) -> int:
     budget_config = load_budget_config()
     store = EventStore(args.store)
     fabric = MemoryFabric(args.memory_store)
+    
+    gateway = _make_gateway(provider)
+    print("Probing execution environment...")
+    env_context = await gateway.probe_environment(CostTier.STANDARD)
+    print(f"[Pre-flight] Environment: {env_context.provider_name} (v: {env_context.cli_version}) | Capabilities: {', '.join(env_context.native_capabilities)}")
+    
     try:
         orchestrator = Orchestrator(
             store=store,
             agent_runtime=AgentRuntime(
-                _make_gateway(provider), tool_gateway=build_default_tool_gateway(fabric)
+                gateway, tool_gateway=build_default_tool_gateway(fabric)
             ),
             critic=CriticService(),
             registry=registry,
@@ -211,6 +219,7 @@ async def _run(args: argparse.Namespace) -> int:
             soft_ratio=budget_config.soft_ratio,
             max_revisions=args.max_revisions,
             artifact_dir=Path(args.artifact_dir),
+            env_context=env_context,
         )
         spec = compile_task(args.text)
         print(f"task_id={spec.task_id}")
@@ -296,12 +305,20 @@ def _serve(args: argparse.Namespace) -> int:
     from headmaster.api.main import create_app
 
     static_dir = Path(args.static_dir)
+    
+    import asyncio
+    gateway = _make_gateway(args.provider)
+    env_context = asyncio.run(gateway.probe_environment(CostTier.STANDARD))
+    print(f"[Pre-flight] Serving Environment: {env_context.provider_name} (v: {env_context.cli_version}) | Capabilities: {', '.join(env_context.native_capabilities)}")
+
+    # We need to pass env_context to create_app.
     app = create_app(
         store=EventStore(args.store),
         fabric=MemoryFabric(args.memory_store),
         provider=args.provider,
         artifact_dir=Path(args.artifact_dir),
         static_dir=static_dir if static_dir.is_dir() else None,
+        env_context=env_context,
     )
     uvicorn.run(app, host=args.host, port=args.port)
     return 0

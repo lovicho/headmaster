@@ -12,6 +12,7 @@ import shutil
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from headmaster.execution_plane.concurrency_config import DEFAULT_CONCURRENCY_LIMIT
 from headmaster.execution_plane.models.gateway import (
     ModelAdapter,
     ModelGatewayError,
@@ -19,6 +20,8 @@ from headmaster.execution_plane.models.gateway import (
     ModelResponse,
     ModelUsage,
 )
+from headmaster.schemas.environment import EnvironmentContext
+from headmaster.execution_plane.models.provider_profiles import get_profile
 
 Runner = Callable[[list[str]], Awaitable[tuple[int, bytes, bytes]]]
 
@@ -70,10 +73,13 @@ class GeminiCliAdapter(ModelAdapter):
         binary: str = "gemini",
         timeout_s: float = 300.0,
         runner: Runner | None = None,
+        max_concurrent: int | None = None,
     ) -> None:
         self._binary = binary
         self._timeout_s = timeout_s
         self._runner = runner
+        limit = max_concurrent if max_concurrent is not None else DEFAULT_CONCURRENCY_LIMIT
+        self._semaphore = asyncio.Semaphore(limit)
 
     def _resolve_binary(self) -> str:
         resolved = shutil.which(self._binary)
@@ -82,6 +88,36 @@ class GeminiCliAdapter(ModelAdapter):
                 f"gemini CLI not found ('{self._binary}') — install it and run OAuth login"
             )
         return resolved
+
+    async def probe_environment(self) -> EnvironmentContext:
+        """Probe the Gemini CLI environment."""
+        cli_version = "unknown"
+        try:
+            binary = self._resolve_binary() if self._runner is None else self._binary
+            runner = self._runner or _subprocess_runner
+            async with self._semaphore:
+                returncode, stdout, _ = await asyncio.wait_for(
+                    runner([binary, "--version"]), timeout=10.0
+                )
+            if returncode == 0:
+                out_text = stdout.decode("utf-8", errors="replace").strip()
+                if out_text:
+                    cli_version = out_text
+        except Exception:
+            pass
+
+        base_extension = (
+            "You are running within Gemini CLI environment.\n"
+        )
+        profile_text = get_profile(self.provider)
+        full_extension = f"{base_extension}\n\n{profile_text}" if profile_text else base_extension
+
+        return EnvironmentContext(
+            provider_name=self.provider,
+            cli_version=cli_version,
+            native_capabilities=["search", "mcp"],
+            system_prompt_extension=full_extension
+        )
 
     async def complete(self, request: ModelRequest, model: str) -> ModelResponse:
         args = [
@@ -99,9 +135,10 @@ class GeminiCliAdapter(ModelAdapter):
             args.extend(["-m", model])
         runner = self._runner or _subprocess_runner
         try:
-            returncode, stdout, stderr = await asyncio.wait_for(
-                runner(args), timeout=self._timeout_s
-            )
+            async with self._semaphore:
+                returncode, stdout, stderr = await asyncio.wait_for(
+                    runner(args), timeout=self._timeout_s
+                )
         except TimeoutError as err:
             raise ModelGatewayError(
                 f"gemini CLI timed out after {self._timeout_s}s"

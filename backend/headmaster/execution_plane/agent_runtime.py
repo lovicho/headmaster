@@ -30,6 +30,7 @@ from headmaster.schemas.evidence_bundle import EvidenceBundle, IBFProof
 from headmaster.schemas.harness_manifest import AgentHarness, IBFRequirements
 from headmaster.schemas.memory_record import MemoryRecord
 from headmaster.schemas.task_spec import TaskSpec
+from headmaster.schemas.environment import EnvironmentContext
 
 EmitFn = Callable[[Event], None]
 
@@ -114,8 +115,12 @@ class AgentRuntime:
         emit: EmitFn,
         supplied_assets: list[MemoryRecord] | None = None,
         cost_tier: CostTier | None = None,
+        env_context: EnvironmentContext | None = None,
     ) -> AgentDraft:
         system_prompt = compile_system_prompt(harness, requirements)
+        if env_context and env_context.system_prompt_extension:
+            system_prompt += f"\n\n# Execution Environment\nProvider: {env_context.provider_name}\nCapabilities: {', '.join(env_context.native_capabilities)}\n\n{env_context.system_prompt_extension}"
+        
         user_sections = [f"# Task\n{task.intent}"]
         if supplied_assets:
             user_sections.append(

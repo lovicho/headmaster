@@ -1,0 +1,15 @@
+repos:
+  - repo: local
+    hooks:
+      - id: sdd-validator
+        name: SDD 3-Tier Spec Validator
+        entry: uv run python backend/scripts/sdd_validator.py
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: commit-task-validator
+        name: Task Traceability Validator
+        entry: uv run python backend/scripts/commit_validator.py
+        language: system
+        stages: [commit-msg]
+        require_serial: true

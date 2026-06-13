@@ -18,6 +18,17 @@ from headmaster.schemas.events import Event, EventType
 from headmaster.schemas.states import TaskState
 from headmaster.schemas.task_spec import TaskSpec
 from headmaster.storage.event_store import EventStore
+from pydantic import BaseModel, Field
+
+class TaskSnapshotState(BaseModel):
+    artifact_data: dict[str, Any] | None = None
+    failed_data: dict[str, Any] | None = None
+    supplied_data: dict[str, Any] | None = None
+    assimilated_data: dict[str, Any] | None = None
+    critiques: list[dict[str, Any]] = Field(default_factory=list)
+    task_spec: dict[str, Any] | None = None
+    harness_id: str | None = None
+
 
 
 class ProjectionError(Exception):
@@ -62,6 +73,52 @@ class TaskEventProjector:
     def __init__(self, store: EventStore) -> None:
         self._store = store
 
+    def _fold_events(self, state: TaskSnapshotState, events: list[Event]) -> TaskSnapshotState:
+        for event in events:
+            if event.type is EventType.TASK_REGISTERED and state.task_spec is None:
+                state.task_spec = event.data.get("spec")
+            elif event.type is EventType.TASK_CLASSIFIED and state.harness_id is None:
+                state.harness_id = as_str(event.data.get("harness_id"))
+            elif event.type is EventType.ARTIFACT_PUBLISHED:
+                state.artifact_data = event.data
+            elif event.type is EventType.TASK_FAILED:
+                state.failed_data = event.data
+            elif event.type is EventType.KNOWLEDGE_SUPPLIED:
+                state.supplied_data = event.data
+            elif event.type is EventType.KNOWLEDGE_ASSIMILATED:
+                state.assimilated_data = event.data
+            elif event.type is EventType.CRITIQUE_ISSUED:
+                state.critiques.append(event.data)
+        return state
+
+    def _get_snapshot(self, task_id: str) -> TaskSnapshotState:
+        record = self._store.load_snapshot(task_id)
+        if record is None:
+            last_seq = 0
+            state = TaskSnapshotState()
+        else:
+            last_seq, data = record
+            state = TaskSnapshotState.model_validate(data)
+
+        # We need the events to fold
+        delta_rows = self._store.for_task_since_with_seq(task_id, last_seq)
+        if not delta_rows:
+            if last_seq == 0:
+                raise ProjectionError(404, f"unknown task '{task_id}'")
+            return state
+
+        delta_events = [row[1] for row in delta_rows]
+        state = self._fold_events(state, delta_events)
+        
+        new_last_seq = delta_rows[-1][0]
+        
+        # Lazy snapshotting if there are many events
+        if len(delta_rows) >= 50:
+            self._store.save_snapshot(task_id, new_last_seq, state.model_dump(mode="json"))
+
+        return state
+
+
     def events_for_task(self, task_id: str) -> list[Event]:
         events = self._store.for_task(task_id)
         if not events:
@@ -88,7 +145,12 @@ class TaskEventProjector:
 
     def pending_approvals_from_events(self) -> dict[str, ApprovalTicket]:
         pending: dict[str, ApprovalTicket] = {}
-        for event in self._store.all_events():
+        events = self._store.events_of_types([
+            EventType.APPROVAL_REQUESTED.value,
+            EventType.APPROVAL_GRANTED.value,
+            EventType.APPROVAL_DENIED.value,
+        ])
+        for event in events:
             if event.type is EventType.APPROVAL_REQUESTED:
                 ticket = ApprovalTicket.model_validate(event.data)
                 pending[ticket.ticket_id] = ticket
@@ -106,20 +168,16 @@ class TaskEventProjector:
             pending[ticket.ticket_id] = ticket
         return sorted(pending.values(), key=lambda ticket: ticket.ticket_id)
 
-    def task_spec_from_events(self, events: list[Event]) -> TaskSpec:
-        registered = next(
-            (event for event in events if event.type is EventType.TASK_REGISTERED), None
-        )
-        raw_spec = registered.data.get("spec") if registered else None
+    def task_spec_from_snapshot(self, task_id: str) -> TaskSpec:
+        snapshot = self._get_snapshot(task_id)
+        raw_spec = snapshot.task_spec
         if not isinstance(raw_spec, dict):
             raise ProjectionError(409, "task spec is unavailable in the event log")
         return TaskSpec.model_validate(raw_spec)
 
-    def harness_id_from_events(self, events: list[Event]) -> str:
-        classified = next(
-            (event for event in events if event.type is EventType.TASK_CLASSIFIED), None
-        )
-        harness_id = as_str(classified.data.get("harness_id")) if classified else None
+    def harness_id_from_snapshot(self, task_id: str) -> str:
+        snapshot = self._get_snapshot(task_id)
+        harness_id = snapshot.harness_id
         if harness_id is None:
             raise ProjectionError(
                 409, "task cannot be resumed without an agent harness id"
@@ -175,14 +233,14 @@ class TaskEventProjector:
         running: bool,
         result: OrchestratorResult | None,
     ) -> TaskProjection:
-        events = self.events_for_task(task_id)
+        snapshot = self._get_snapshot(task_id)
         if state is None:
             raise ProjectionError(404, f"unknown task '{task_id}'")
 
-        artifact_data = self.published_artifact_data(events)
-        failed_data = self.last_event_data(events, EventType.TASK_FAILED)
-        supplied_data = self.last_event_data(events, EventType.KNOWLEDGE_SUPPLIED)
-        assimilated_data = self.last_event_data(events, EventType.KNOWLEDGE_ASSIMILATED)
+        artifact_data = snapshot.artifact_data
+        failed_data = snapshot.failed_data
+        supplied_data = snapshot.supplied_data
+        assimilated_data = snapshot.assimilated_data
 
         artifact_id: str | None = None
         if result is not None and result.artifact is not None:
@@ -218,7 +276,7 @@ class TaskEventProjector:
         elif failed_data is not None:
             failure_reason = as_str(failed_data.get("reason"))
 
-        critiques = result.critiques if result is not None else self.critiques_from_events(events)
+        critiques = result.critiques if result is not None else [CritiqueReport.model_validate(c) for c in snapshot.critiques]
         return TaskProjection(
             task_id=task_id,
             state=state,
@@ -241,8 +299,8 @@ class TaskEventProjector:
                 content=artifact.content,
             )
 
-        events = self.events_for_task(task_id)
-        artifact_data = self.published_artifact_data(events)
+        snapshot = self._get_snapshot(task_id)
+        artifact_data = snapshot.artifact_data
         if artifact_data is None:
             raise ProjectionError(404, f"no published artifact for task '{task_id}'")
 

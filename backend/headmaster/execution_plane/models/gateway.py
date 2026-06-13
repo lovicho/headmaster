@@ -13,6 +13,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from headmaster.schemas.common import CostTier
+from headmaster.schemas.environment import EnvironmentContext
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent.parent / "config"
 
@@ -74,6 +75,10 @@ class ModelAdapter(ABC):
     @abstractmethod
     async def complete(self, request: ModelRequest, model: str) -> ModelResponse: ...
 
+    async def probe_environment(self) -> EnvironmentContext:
+        """Probe the CLI/Environment to ascertain supported native capabilities."""
+        return EnvironmentContext(provider_name=self.provider)
+
 
 class TierRoute(BaseModel):
     provider: str
@@ -126,3 +131,11 @@ class ModelGateway:
             raise
         except Exception as err:
             raise ModelGatewayError(f"{provider}/{model}: {err}") from err
+
+    async def probe_environment(self, tier: CostTier) -> EnvironmentContext:
+        """Probe the environment based on the provider resolved for the given tier."""
+        provider, _ = self.resolve(tier)
+        adapter = self._adapters.get(provider)
+        if adapter is None:
+            return EnvironmentContext(provider_name=provider)
+        return await adapter.probe_environment()

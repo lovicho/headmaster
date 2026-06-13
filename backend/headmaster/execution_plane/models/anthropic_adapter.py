@@ -16,6 +16,8 @@ from headmaster.execution_plane.models.gateway import (
     ModelUsage,
     ToolCall,
 )
+from headmaster.schemas.environment import EnvironmentContext
+from headmaster.execution_plane.models.provider_profiles import get_profile
 
 ANTHROPIC_VERSION = "2023-06-01"
 
@@ -69,6 +71,16 @@ class AnthropicAdapter(ModelAdapter):
             else:
                 messages.append({"role": m.role, "content": m.content})
         return messages
+
+    async def probe_environment(self) -> EnvironmentContext:
+        """Probe the Anthropic REST API environment."""
+        profile_text = get_profile(self.provider)
+        return EnvironmentContext(
+            provider_name=self.provider,
+            cli_version="rest-api",
+            native_capabilities=["mcp", "tool_calling", "vision"],
+            system_prompt_extension=profile_text
+        )
 
     async def complete(self, request: ModelRequest, model: str) -> ModelResponse:
         system = "\n\n".join(m.content for m in request.messages if m.role == "system")

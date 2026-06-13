@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from headmaster.schemas.common import new_id
 
-ApprovalKind = Literal["publish", "budget_overrun", "phase_gate"]
+ApprovalKind = Literal["publish", "budget_overrun", "phase_gate", "recovery_limit_exceeded"]
 
 
 class ApprovalTicket(BaseModel):

@@ -39,6 +39,7 @@ from headmaster.schemas.memory_record import MemoryRecord
 from headmaster.schemas.states import TaskState, validate_transition
 from headmaster.schemas.task_spec import TaskSpec
 from headmaster.storage.event_store import EventStore
+from headmaster.schemas.environment import EnvironmentContext
 
 SOURCE = "headmaster.orchestrator"
 
@@ -69,6 +70,7 @@ class Orchestrator:
         max_revisions: int = 2,
         max_recoveries: int = 2,
         artifact_dir: Path | None = None,
+        env_context: EnvironmentContext | None = None,
     ) -> None:
         self._store = store
         self._agent_runtime = agent_runtime
@@ -81,6 +83,7 @@ class Orchestrator:
         self._max_revisions = max_revisions
         self._max_recoveries = max_recoveries
         self._artifact_dir = artifact_dir
+        self._env_context = env_context
 
     # ----- primitives -------------------------------------------------
 
@@ -181,6 +184,7 @@ class Orchestrator:
             emit=self._store.append,
             supplied_assets=supplied,
             cost_tier=tier,
+            env_context=self._env_context,
         )
         ledger.record_model_usage(draft.provider, draft.model, draft.usage)
         critique = self._critic.review(
@@ -369,14 +373,27 @@ class Orchestrator:
                     break
                 except ModelGatewayError as err:
                     if recoveries >= self._max_recoveries:
-                        state = self._fail(spec, state, "model_error", error=str(err))
-                        return OrchestratorResult(
-                            task_id=task_id,
-                            final_state=state,
-                            critiques=critiques,
-                            supplied_asset_ids=sorted(supplied_ids),
-                            failure_reason="model_error",
+                        state = self._transition(task_id, state, TaskState.AWAITING_HUMAN_APPROVAL)
+                        decision = await self._request_approval(
+                            ApprovalTicket(
+                                task_id=task_id,
+                                kind="recovery_limit_exceeded",
+                                reason=f"Model error recovery limit reached. Fix error and approve to resume: {err}",
+                                details={"error": str(err), "agent": harness_id},
+                            )
                         )
+                        if not decision.granted:
+                            state = self._fail(spec, state, "model_error", error=str(err))
+                            return OrchestratorResult(
+                                task_id=task_id,
+                                final_state=state,
+                                critiques=critiques,
+                                supplied_asset_ids=sorted(supplied_ids),
+                                failure_reason="model_error",
+                            )
+                        recoveries = 0
+                        state = self._transition(task_id, state, TaskState.EXECUTING)
+                        continue
                     recoveries += 1
                     state = self._transition(task_id, state, TaskState.RECOVERING)
                     self._emit(
@@ -601,20 +618,33 @@ class Orchestrator:
                     if not failed:
                         break
                     if recoveries >= self._max_recoveries:
-                        state = self._fail(
-                            spec,
-                            state,
-                            "model_error",
-                            agents=failed,
-                            error=str(last_error),
+                        state = self._transition(task_id, state, TaskState.AWAITING_HUMAN_APPROVAL)
+                        decision = await self._request_approval(
+                            ApprovalTicket(
+                                task_id=task_id,
+                                kind="recovery_limit_exceeded",
+                                reason=f"Model error recovery limit reached for agents {failed}. Fix error and approve to resume: {last_error}",
+                                details={"error": str(last_error), "agents": failed},
+                            )
                         )
-                        return OrchestratorResult(
-                            task_id=task_id,
-                            final_state=state,
-                            critiques=critiques,
-                            supplied_asset_ids=sorted(supplied_ids),
-                            failure_reason="model_error",
-                        )
+                        if not decision.granted:
+                            state = self._fail(
+                                spec,
+                                state,
+                                "model_error",
+                                agents=failed,
+                                error=str(last_error),
+                            )
+                            return OrchestratorResult(
+                                task_id=task_id,
+                                final_state=state,
+                                critiques=critiques,
+                                supplied_asset_ids=sorted(supplied_ids),
+                                failure_reason="model_error",
+                            )
+                        recoveries = 0
+                        state = self._transition(task_id, state, TaskState.EXECUTING)
+                        continue
                     recoveries += 1
                     to_run = failed
                 results = [round_results[agent_id] for agent_id in agents]

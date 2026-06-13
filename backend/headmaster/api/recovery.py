@@ -111,8 +111,8 @@ class ApprovalRecoveryService:
             raise RecoveryError(409, f"task is not awaiting approval (state={state.value})")
 
         try:
-            spec = self._projector.task_spec_from_events(events)
-            produced_by = self._projector.harness_id_from_events(events)
+            spec = self._projector.task_spec_from_snapshot(ticket.task_id)
+            produced_by = self._projector.harness_id_from_snapshot(ticket.task_id)
             content = self._projector.draft_content_before_approval(
                 events, ticket=ticket, produced_by=produced_by
             )

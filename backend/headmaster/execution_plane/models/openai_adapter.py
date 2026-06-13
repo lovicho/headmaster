@@ -17,6 +17,8 @@ from headmaster.execution_plane.models.gateway import (
     ModelUsage,
     ToolCall,
 )
+from headmaster.schemas.environment import EnvironmentContext
+from headmaster.execution_plane.models.provider_profiles import get_profile
 
 
 class OpenAIAdapter(ModelAdapter):
@@ -61,6 +63,16 @@ class OpenAIAdapter(ModelAdapter):
             else:
                 messages.append({"role": m.role, "content": m.content})
         return messages
+
+    async def probe_environment(self) -> EnvironmentContext:
+        """Probe the OpenAI REST API environment."""
+        profile_text = get_profile(self.provider)
+        return EnvironmentContext(
+            provider_name=self.provider,
+            cli_version="rest-api",
+            native_capabilities=["tool_calling", "vision", "parallel_tool_calls"],
+            system_prompt_extension=profile_text
+        )
 
     async def complete(self, request: ModelRequest, model: str) -> ModelResponse:
         payload: dict[str, object] = {

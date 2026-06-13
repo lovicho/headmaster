@@ -13,6 +13,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from headmaster.execution_plane.concurrency_config import DEFAULT_CONCURRENCY_LIMIT
 from headmaster.execution_plane.models.gateway import (
     ModelAdapter,
     ModelGatewayError,
@@ -20,6 +21,8 @@ from headmaster.execution_plane.models.gateway import (
     ModelResponse,
     ModelUsage,
 )
+from headmaster.schemas.environment import EnvironmentContext
+from headmaster.execution_plane.models.provider_profiles import get_profile
 
 # OSC (terminated by BEL or ST), CSI, and single-char escapes
 _ANSI = re.compile(
@@ -85,17 +88,58 @@ class AgyCliAdapter(ModelAdapter):
         binary: str = "agy.exe",
         timeout_s: float = 600.0,
         runner: Runner | None = None,
+        max_concurrent: int | None = None,
     ) -> None:
         self._binary = binary
         self._timeout_s = timeout_s
         self._runner = runner
+        limit = max_concurrent if max_concurrent is not None else DEFAULT_CONCURRENCY_LIMIT
+        self._semaphore = asyncio.Semaphore(limit)
+
+    async def probe_environment(self) -> EnvironmentContext:
+        """Probe the Antigravity (AGY) CLI environment."""
+        cli_version = "unknown"
+        try:
+            # Simple subprocess for version check (pty not needed for just --version)
+            async with self._semaphore:
+                process = await asyncio.create_subprocess_exec(
+                    self._binary, "--version",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, _ = await asyncio.wait_for(process.communicate(), timeout=5.0)
+            if process.returncode == 0:
+                out_text = strip_terminal_noise(stdout.decode("utf-8", errors="replace")).strip()
+                if out_text:
+                    cli_version = out_text
+        except Exception:
+            pass  # Fallback to "unknown"
+
+        base_extension = (
+            "You are running within the Antigravity (AGY) environment.\n"
+            "You have access to advanced Google Antigravity SDK features."
+        )
+        profile_text = get_profile(self.provider)
+        full_extension = f"{base_extension}\n\n{profile_text}" if profile_text else base_extension
+
+        return EnvironmentContext(
+            provider_name=self.provider,
+            cli_version=cli_version,
+            native_capabilities=[
+                "multi_agent_orchestration",
+                "google_antigravity_sdk",
+                "local_mcp"
+            ],
+            system_prompt_extension=full_extension
+        )
 
     async def complete(self, request: ModelRequest, model: str) -> ModelResponse:
         args = [self._binary, "-p", _compose_prompt(request)]
         if model and model != "default":
             args.extend(["--model", model])
         runner = self._runner or _conpty_runner
-        raw = await asyncio.to_thread(runner, args, self._timeout_s)
+        async with self._semaphore:
+            raw = await asyncio.to_thread(runner, args, self._timeout_s)
         text = strip_terminal_noise(raw)
         if not text:
             raise ModelGatewayError("agy CLI produced no response text")

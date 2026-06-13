@@ -14,7 +14,10 @@
 from pathlib import Path
 from typing import Any, NoReturn
 
-from fastapi import FastAPI, HTTPException
+from contextlib import asynccontextmanager
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -44,11 +47,13 @@ from headmaster.execution_plane.models import (
     load_routing,
 )
 from headmaster.execution_plane.orchestrator import Orchestrator
+from headmaster.execution_plane.concurrency_config import DEFAULT_CONCURRENCY_LIMIT
 from headmaster.execution_plane.tools import build_default_tool_gateway
 from headmaster.schemas.approval import ApprovalDecision, ApprovalTicket
 from headmaster.schemas.harness_manifest import AgentHarness, OrchestraHarness
 from headmaster.schemas.task_spec import Budget
 from headmaster.storage.event_store import EventStore
+from headmaster.schemas.environment import EnvironmentContext
 
 _DEFAULT_GOLDEN = (
     Path(__file__).resolve().parent.parent / "tests" / "golden" / "critic_golden.json"
@@ -106,6 +111,82 @@ def _raise_api_error(exc: ProjectionError | RecoveryError) -> NoReturn:
     raise HTTPException(exc.status_code, exc.message)
 
 
+
+def get_manager(request: Request) -> TaskManager:
+    return request.app.state.manager
+
+def get_projector(request: Request) -> TaskEventProjector:
+    return request.app.state.projector
+
+def get_store(request: Request) -> EventStore:
+    return request.app.state.store
+
+def get_approvals(request: Request) -> QueueApprovalGateway:
+    return request.app.state.approvals
+
+def get_recovery(request: Request) -> ApprovalRecoveryService:
+    return request.app.state.recovery
+
+def get_registry(request: Request) -> dict[str, AgentHarness]:
+    return request.app.state.registry
+
+def get_orchestras(request: Request) -> dict[str, OrchestraHarness]:
+    return request.app.state.orchestras
+
+def get_budget_config(request: Request) -> Any:
+    return request.app.state.budget_config
+
+def _status(task_id: str, manager: TaskManager, projector: TaskEventProjector) -> TaskStatus:
+    try:
+        projection = projector.task_status(
+            task_id=task_id,
+            state=manager.state_of(task_id),
+            running=manager.is_running(task_id),
+            result=manager.result_of(task_id),
+        )
+    except ProjectionError as exc:
+        _raise_api_error(exc)
+    return TaskStatus(
+        task_id=projection.task_id,
+        state=projection.state.value,
+        running=projection.running,
+        failure_reason=projection.failure_reason,
+        artifact_id=projection.artifact_id,
+        artifact_path=projection.artifact_path,
+        supplied_asset_ids=projection.supplied_asset_ids,
+        reused_asset_ids=projection.reused_asset_ids,
+        critiques=[
+            CritiqueSummary(
+                target_agent=critique.target_agent,
+                status=critique.status.value,
+                zero_shot_detected=critique.zero_shot_detected,
+                rejection_codes=[
+                    finding.code.value
+                    for finding in critique.findings
+                    if finding.code is not None
+                ],
+                rejection_categories=sorted(
+                    {
+                        finding.category.value
+                        for finding in critique.findings
+                        if finding.category is not None
+                    }
+                ),
+            )
+            for critique in projection.critiques
+        ],
+    )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    loop = asyncio.get_running_loop()
+    executor = ThreadPoolExecutor(max_workers=DEFAULT_CONCURRENCY_LIMIT)
+    loop.set_default_executor(executor)
+    yield
+    executor.shutdown(wait=False)
+
+
 def create_app(
     *,
     store: EventStore,
@@ -114,6 +195,7 @@ def create_app(
     artifact_dir: Path | None = None,
     static_dir: Path | None = None,
     max_revisions: int = 2,
+    env_context: EnvironmentContext | None = None,
 ) -> FastAPI:
     all_harnesses = load_all()
     registry = {
@@ -151,6 +233,7 @@ def create_app(
         soft_ratio=budget_config.soft_ratio,
         max_revisions=max_revisions,
         artifact_dir=artifact_dir,
+        env_context=env_context,
     )
     manager = TaskManager(orchestrator, store)
     projector = TaskEventProjector(store)
@@ -162,7 +245,17 @@ def create_app(
         artifact_dir=artifact_dir,
     )
 
-    app = FastAPI(title="Headmaster Control API", version="0.1.0")
+    app = FastAPI(title="Headmaster Control API", version="0.1.0", lifespan=lifespan)
+    
+    app.state.manager = manager
+    app.state.projector = projector
+    app.state.store = store
+    app.state.approvals = approvals
+    app.state.recovery = recovery
+    app.state.registry = registry
+    app.state.orchestras = orchestras
+    app.state.budget_config = budget_config
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -171,7 +264,12 @@ def create_app(
     )
 
     @app.post("/v1/tasks", response_model=CreateTaskResponse)
-    async def create_task(request: CreateTaskRequest) -> CreateTaskResponse:
+    async def create_task(
+        request: CreateTaskRequest,
+        manager: TaskManager = Depends(get_manager),
+        orchestras: dict[str, OrchestraHarness] = Depends(get_orchestras),
+        registry: dict[str, AgentHarness] = Depends(get_registry)
+    ) -> CreateTaskResponse:
         spec = compile_task(request.text, needs_human_approval=request.needs_human_approval)
         if request.max_tokens is not None or request.max_model_cost_usd is not None:
             spec.constraints.budget = Budget(
@@ -191,63 +289,36 @@ def create_app(
         return CreateTaskResponse(task_id=task_id, state="registered")
 
     @app.get("/v1/tasks", response_model=list[TaskStatus])
-    async def list_tasks() -> list[TaskStatus]:
-        return [_status(task_id) for task_id in manager.task_ids()]
-
-    def _status(task_id: str) -> TaskStatus:
-        try:
-            projection = projector.task_status(
-                task_id=task_id,
-                state=manager.state_of(task_id),
-                running=manager.is_running(task_id),
-                result=manager.result_of(task_id),
-            )
-        except ProjectionError as exc:
-            _raise_api_error(exc)
-        return TaskStatus(
-            task_id=projection.task_id,
-            state=projection.state.value,
-            running=projection.running,
-            failure_reason=projection.failure_reason,
-            artifact_id=projection.artifact_id,
-            artifact_path=projection.artifact_path,
-            supplied_asset_ids=projection.supplied_asset_ids,
-            reused_asset_ids=projection.reused_asset_ids,
-            critiques=[
-                CritiqueSummary(
-                    target_agent=critique.target_agent,
-                    status=critique.status.value,
-                    zero_shot_detected=critique.zero_shot_detected,
-                    rejection_codes=[
-                        finding.code.value
-                        for finding in critique.findings
-                        if finding.code is not None
-                    ],
-                    rejection_categories=sorted(
-                        {
-                            finding.category.value
-                            for finding in critique.findings
-                            if finding.category is not None
-                        }
-                    ),
-                )
-                for critique in projection.critiques
-            ],
-        )
+    async def list_tasks(
+        manager: TaskManager = Depends(get_manager),
+        projector: TaskEventProjector = Depends(get_projector)
+    ) -> list[TaskStatus]:
+        return [_status(task_id, manager, projector) for task_id in manager.task_ids()]
 
     @app.get("/v1/tasks/{task_id}", response_model=TaskStatus)
-    async def task_status(task_id: str) -> TaskStatus:
-        return _status(task_id)
+    async def task_status(
+        task_id: str,
+        manager: TaskManager = Depends(get_manager),
+        projector: TaskEventProjector = Depends(get_projector)
+    ) -> TaskStatus:
+        return _status(task_id, manager, projector)
 
     @app.get("/v1/tasks/{task_id}/events")
-    async def task_events(task_id: str) -> list[dict[str, Any]]:
+    async def task_events(
+        task_id: str,
+        store: EventStore = Depends(get_store)
+    ) -> list[dict[str, Any]]:
         events = store.for_task(task_id)
         if not events:
             raise HTTPException(404, f"unknown task '{task_id}'")
         return [event.model_dump(mode="json") for event in events]
 
     @app.get("/v1/tasks/{task_id}/artifact", response_model=ArtifactResponse)
-    async def task_artifact(task_id: str) -> ArtifactResponse:
+    async def task_artifact(
+        task_id: str,
+        manager: TaskManager = Depends(get_manager),
+        projector: TaskEventProjector = Depends(get_projector)
+    ) -> ArtifactResponse:
         try:
             artifact = projector.artifact(task_id, manager.result_of(task_id))
         except ProjectionError as exc:
@@ -260,12 +331,19 @@ def create_app(
         )
 
     @app.get("/v1/approvals", response_model=list[ApprovalTicket])
-    async def pending_approvals() -> list[ApprovalTicket]:
+    async def pending_approvals(
+        projector: TaskEventProjector = Depends(get_projector),
+        approvals: QueueApprovalGateway = Depends(get_approvals)
+    ) -> list[ApprovalTicket]:
         return projector.pending_approvals(approvals.pending())
 
     @app.post("/v1/approvals/{ticket_id}")
     async def resolve_approval(
-        ticket_id: str, request: ResolveApprovalRequest
+        ticket_id: str,
+        request: ResolveApprovalRequest,
+        approvals: QueueApprovalGateway = Depends(get_approvals),
+        projector: TaskEventProjector = Depends(get_projector),
+        recovery: ApprovalRecoveryService = Depends(get_recovery)
     ) -> dict[str, bool]:
         decision = ApprovalDecision(
             granted=request.granted, approver=request.approver, note=request.note
@@ -287,11 +365,16 @@ def create_app(
         return {"resolved": True, "granted": request.granted}
 
     @app.get("/v1/metrics", response_model=Metrics)
-    async def metrics() -> Metrics:
+    async def metrics(
+        store: EventStore = Depends(get_store),
+        budget_config: Any = Depends(get_budget_config)
+    ) -> Metrics:
         return compute_metrics(store, pricing=budget_config.pricing)
 
     @app.post("/v1/evals/run", response_model=EvalReport)
-    async def run_evals() -> EvalReport:
+    async def run_evals(
+        registry: dict[str, AgentHarness] = Depends(get_registry)
+    ) -> EvalReport:
         return run_golden_suite(_DEFAULT_GOLDEN, registry)
 
     if static_dir is not None and static_dir.is_dir():
